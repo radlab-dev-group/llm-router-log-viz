@@ -18,8 +18,14 @@
       <div class="meta">log: <span id="log-path" class="mono">—</span></div>
       <div class="meta">events: <span id="event-count" class="mono">0</span></div>
       <div class="meta">last: <span id="last-mode" class="mono">—</span></div>
+      <div class="meta">req: <span id="req-count" class="mono">0</span></div>
     </div>
   </header>
+
+  <section class="session-strip" id="session-strip" aria-label="sesje">
+    <span class="session-strip-label">SESSIONS</span>
+    <span class="session-strip-empty muted">brak danych</span>
+  </section>
 
   <main class="grid">
     <section class="panel panel-raw">
@@ -60,7 +66,7 @@
         </div>
       </div>
       <div class="graph-wrap">
-        <svg id="phase-graph" viewBox="0 0 920 360" preserveAspectRatio="xMidYMid meet"></svg>
+        <svg id="phase-graph" viewBox="0 0 920 360" preserveAspectRatio="xMidYMin meet"></svg>
       </div>
     </section>
 

@@ -14,7 +14,11 @@
   const NODE_H = 56;
   const EXTRA_ROW_Y = 400;
   const EXTRA_PER_ROW = 4;
-  const GRAPH_VIEWBOX = "0 0 920 470";
+  // Keep in sync with the viewBox shipped in index.html: when the computed
+  // height matches it, the SVG attribute is never touched and nothing moves.
+  const GRAPH_BASE_HEIGHT = 360;
+  const GRAPH_PADDING = 24;
+  const GRAPH_KNOWN_BOTTOM = 250;
   const MAX_DOM_LINES = 500;
   const MAX_CLIENT_EVENTS = 500;
 
@@ -41,6 +45,17 @@
   let clientEvents = [];
   let layout = Object.assign({}, NODE_POS);
   let insightsOpen = new Set();
+  let appliedGraphHeight = (() => {
+    const parts = (graphEl.getAttribute("viewBox") || "").split(/\s+/);
+    const h = parseInt(parts[3], 10);
+    return Number.isFinite(h) ? h : GRAPH_BASE_HEIGHT;
+  })();
+
+  function applyViewBox(height) {
+    if (height === appliedGraphHeight) return;
+    appliedGraphHeight = height;
+    graphEl.setAttribute("viewBox", `0 0 920 ${height}`);
+  }
 
   function esc(s) {
     return String(s)
@@ -69,17 +84,25 @@
   }
 
   // ------------------------------------------------------------------ layout
+  // Extra (unknown) modes are appended in arrival order and never re-sorted,
+  // so placing a new mode cannot re-flow the nodes that are already placed.
+  let extraSlots = 0;
+
   function computeLayout(nodes) {
-    const extras = (nodes || [])
-      .map(n => n.id)
-      .filter(id => !layout[id])
-      .sort();
-    extras.forEach((id, i) => {
-      const row = Math.floor(i / EXTRA_PER_ROW);
-      const col = i % EXTRA_PER_ROW;
-      layout[id] = { x: 110 + col * 220, y: EXTRA_ROW_Y + row * 120 };
-    });
+    for (const node of nodes || []) {
+      if (layout[node.id]) continue;
+      const row = Math.floor(extraSlots / EXTRA_PER_ROW);
+      const col = extraSlots % EXTRA_PER_ROW;
+      extraSlots += 1;
+      layout[node.id] = { x: 110 + col * 220, y: EXTRA_ROW_Y + row * 120 };
+    }
     return layout;
+  }
+
+  function graphViewHeight() {
+    let maxY = GRAPH_KNOWN_BOTTOM;
+    for (const id of Object.keys(layout)) maxY = Math.max(maxY, layout[id].y);
+    return Math.max(GRAPH_BASE_HEIGHT, maxY + NODE_H / 2 + GRAPH_PADDING);
   }
 
   function nodeCenter(mode) {
@@ -201,7 +224,7 @@
     const nodes = state.nodes || [];
     const edges = state.edges || [];
     computeLayout(nodes);
-    graphEl.setAttribute("viewBox", GRAPH_VIEWBOX);
+    applyViewBox(graphViewHeight());
 
     const last = state.last_event;
     const lastMode = last ? last.mode : null;

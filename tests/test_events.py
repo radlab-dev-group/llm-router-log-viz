@@ -35,6 +35,23 @@ def test_correlation_full_request():
     assert rec.stream is True
 
 
+def test_non_responses_paths_and_missing_path_are_parsed():
+    post, post_payload = parse_router_line(
+        "2026-11-26 09:41:10,221 INFO [api] POST /v1/chat/completions model=auto_codex stream=true"
+    )
+    assert post == "post" and post_payload["model"] == "auto_codex"
+
+    kind, payload = parse_router_line("2026-11-26 09:41:12,887 INFO [api] Response 200 /v1/chat/completions duration_ms=412")
+    assert kind == "response" and payload["duration_ms"] == 412.0
+
+    kind, payload = parse_router_line("2026-11-26 09:41:12,887 INFO [api] Response 500 duration_ms=99")
+    assert kind == "response" and payload["status"] == 500
+
+
+def test_post_like_prose_is_not_matched():
+    assert parse_router_line("2026-11-26 09:41:10,100 INFO [api] POSTURE check ok") is None
+
+
 def test_routing_without_post_becomes_standalone_request():
     log = RouterEventLog()
     line = "2026-11-26 09:41:10,244 INFO  Codex routing: mode=debug source=phase model=m similarity=0.9 class=main reason=- evidence=- memory=- semantic=-"

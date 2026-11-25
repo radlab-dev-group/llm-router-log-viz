@@ -7,12 +7,13 @@ from typing import Dict, List, Optional, Tuple
 
 from .parser import RoutingEvent, extract_timestamp, parse_codex_routing_line
 
-# POST /v1/responses model=auto_codex stream=true
-_POST_RE = re.compile(r"POST\s+/v1/responses\b(?P<kv>.*)$")
+# Path is deliberately generic: real routers log /v1/responses, /v1/chat/completions,
+# and the path is sometimes absent altogether on the Response line.
+_POST_RE = re.compile(r"POST\s+(?P<path>/\S*)?\s*(?P<kv>.*)$")
 # Selected provider=lab3-flash-next model=qwen/Qwen3.8-Flash-Next
 _PROVIDER_RE = re.compile(r"Selected\s+provider=(?P<provider>[^\s]+)\b(?P<kv>.*)$")
 # Response 200 /v1/responses duration_ms=2666
-_RESPONSE_RE = re.compile(r"Response\s+(?P<status>\d{3})\s+/v1/responses\b(?P<kv>.*)$")
+_RESPONSE_RE = re.compile(r"Response\s+(?P<status>\d{3})\s*(?P<path>/\S*)?\s*(?P<kv>.*)$")
 
 _KV_RE = re.compile(r"(?P<key>[a-zA-Z_]+)=(?P<value>[^\s]+)")
 
@@ -204,6 +205,8 @@ def parse_router_line(line: str):
     match = _POST_RE.search(line)
     if match:
         kv = {x.group("key"): x.group("value") for x in _KV_RE.finditer(match.group("kv"))}
+        if not (match.group("path") or kv):
+            return None
         return "post", {
             "model": kv.get("model", "-"),
             "stream": kv.get("stream", "false") == "true",

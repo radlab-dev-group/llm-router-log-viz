@@ -91,16 +91,18 @@ header, main, footer { position: relative; z-index: 1; }
 .grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  grid-template-rows: minmax(280px, 38vh) minmax(320px, 1fr) minmax(260px, 0.85fr);
+  /* Maxima are viewport-clamped on purpose: a panel that grows (more timeline
+     rows, more latency rows) must not stretch its track, otherwise the graph
+     box changes height and the diagram visibly drifts. */
+  grid-template-rows: minmax(280px, 38vh) minmax(300px, 44vh) minmax(240px, 38vh);
   gap: 14px;
   padding: 14px 20px 20px;
-  min-height: calc(100vh - 120px);
 }
 .panel {
   background: linear-gradient(180deg, rgba(13,19,26,0.95), rgba(10,14,20,0.95));
   border: 1px solid var(--line);
   border-radius: var(--r);
-  min-width: 0;
+  min-width: 0; min-height: 0;
   display: flex; flex-direction: column;
   overflow: hidden;
 }
@@ -150,8 +152,8 @@ header, main, footer { position: relative; z-index: 1; }
 .kv .v.src { color: var(--purple); }
 .kv .v.cls { color: var(--amber); }
 
-.graph-wrap { flex: 1; min-height: 0; padding: 8px; }
-#phase-graph { width: 100%; height: 100%; display: block; }
+.graph-wrap { flex: 1; min-height: 0; overflow: hidden; padding: 8px; display: flex; }
+#phase-graph { flex: 1 1 auto; width: 100%; height: 100%; min-height: 0; display: block; }
 .graph-node rect { fill: #0f1720; stroke: #263545; stroke-width: 1.2; }
 .graph-node text { font-family: var(--mono); font-size: 13px; fill: #dce8f3; font-weight: 600; }
 .graph-node .count { font-size: 11px; fill: #8fa1b3; font-weight: 500; }
@@ -162,7 +164,7 @@ header, main, footer { position: relative; z-index: 1; }
 .edge-label { font-family: var(--mono); font-size: 11px; fill: #9fb2c5; }
 .edge-label.active { fill: var(--mint); font-weight: 700; }
 
-.timeline-body { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 10px 12px; gap: 10px; }
+.timeline-body { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
 .counters { display: flex; flex-wrap: wrap; gap: 8px; }
 .counter {
   padding: 6px 10px; border-radius: 6px; background: rgba(255,255,255,0.03); border: 1px solid var(--line);
@@ -192,7 +194,10 @@ header, main, footer { position: relative; z-index: 1; }
 
 /* ------------------------------------------------------------------ sessions */
 .session-strip {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  /* Single line with its own scroller: more sessions must never add a second
+     row, because that would push the whole grid (and the graph) downwards. */
+  display: flex; align-items: center; flex-wrap: nowrap; gap: 8px;
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: thin;
   padding: 10px 20px 0;
   position: relative; z-index: 1;
 }
@@ -201,6 +206,7 @@ header, main, footer { position: relative; z-index: 1; }
   color: var(--fg-faint); margin-right: 4px;
 }
 .session-chip {
+  flex: 0 0 auto; white-space: nowrap;
   display: inline-flex; align-items: baseline; gap: 7px;
   padding: 4px 9px; border-radius: 999px; cursor: default;
   background: var(--panel-2); border: 1px solid var(--line);
@@ -271,6 +277,6 @@ header, main, footer { position: relative; z-index: 1; }
 @media (max-width: 1100px) {
   .grid { grid-template-columns: 1fr; grid-template-rows: auto; }
   .terminal { min-height: 220px; max-height: 320px; }
-  .graph-wrap { min-height: 320px; }
+  .graph-wrap { height: 320px; min-height: 0; }
   .session-strip { padding: 10px 14px 0; }
 }

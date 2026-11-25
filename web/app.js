@@ -1,24 +1,24 @@
 (() => {
   const KNOWN_MODES = ["plan", "implement", "review", "debug", "test", "git_review", "aux_title", "compaction"];
   const NODE_POS = {
-    plan:        { x: 110, y: 80 },
-    implement:   { x: 330, y: 80 },
-    review:      { x: 550, y: 80 },
-    debug:       { x: 770, y: 80 },
-    aux_title:   { x: 110, y: 250 },
-    test:        { x: 330, y: 250 },
-    compaction:  { x: 550, y: 250 },
-    git_review:  { x: 770, y: 250 },
+    plan:        { x: 110, y: 95 },
+    implement:   { x: 330, y: 95 },
+    test:        { x: 550, y: 95 },
+    git_review:  { x: 770, y: 95 },
+    aux_title:   { x: 110, y: 260 },
+    debug:       { x: 330, y: 260 },
+    review:      { x: 550, y: 260 },
+    compaction:  { x: 770, y: 260 },
   };
   const NODE_W = 150;
   const NODE_H = 56;
-  const EXTRA_ROW_Y = 400;
+  const EXTRA_ROW_Y = 410;
   const EXTRA_PER_ROW = 4;
   // Keep in sync with the viewBox shipped in index.html: when the computed
   // height matches it, the SVG attribute is never touched and nothing moves.
   const GRAPH_BASE_HEIGHT = 360;
   const GRAPH_PADDING = 24;
-  const GRAPH_KNOWN_BOTTOM = 250;
+  const GRAPH_KNOWN_BOTTOM = 260;
   const MAX_DOM_LINES = 500;
   const MAX_CLIENT_EVENTS = 500;
 
@@ -109,8 +109,14 @@
     const a = nodeCenter(from);
     const b = nodeCenter(to);
     if (from === to) {
-      const x = a.x, y = a.y - NODE_H / 2;
-      return `M ${x - 18} ${y} C ${x - 55} ${y - 55}, ${x + 55} ${y - 55}, ${x + 18} ${y}`;
+      const isBottom = a.y > 180;
+      const x = a.x;
+      if (isBottom) {
+        const y = a.y + NODE_H / 2;
+        return `M ${x + 18} ${y} C ${x + 50} ${y + 48}, ${x - 50} ${y + 48}, ${x - 18} ${y}`;
+      }
+      const y = a.y - NODE_H / 2;
+      return `M ${x - 18} ${y} C ${x - 50} ${y - 48}, ${x + 50} ${y - 48}, ${x + 18} ${y}`;
     }
     const dx = b.x - a.x;
     const dy = b.y - a.y;
@@ -119,9 +125,18 @@
     const len = Math.sqrt(dx * dx + dy * dy) || 1;
     const nx = -dy / len;
     const ny = dx / len;
-    const bend = Math.min(60, Math.max(20, len * 0.12));
-    const cx = mx + nx * bend;
-    const cy = my + ny * bend;
+
+    let bend = Math.min(50, Math.max(22, len * 0.12));
+    let flipNormal = false;
+    if (Math.abs(dx) > 300 && Math.abs(dy) < 60) {
+      // Long horizontal returns across columns: curve smoothly through the middle gap
+      bend = 80;
+      if (dx < 0) flipNormal = true; // curve downward into the spacious middle corridor
+    }
+    const effNy = flipNormal ? -ny : ny;
+    const effNx = flipNormal ? -nx : nx;
+    const cx = mx + effNx * bend;
+    const cy = my + effNy * bend;
 
     const trim = 75;
     const ux = dx / len, uy = dy / len;
@@ -135,7 +150,10 @@
   function edgeLabelPos(from, to) {
     const a = nodeCenter(from);
     const b = nodeCenter(to);
-    if (from === to) return { x: a.x, y: a.y - NODE_H / 2 - 38 };
+    if (from === to) {
+      const isBottom = a.y > 180;
+      return { x: a.x, y: isBottom ? a.y + NODE_H / 2 + 34 : a.y - NODE_H / 2 - 28 };
+    }
     const dx = b.x - a.x;
     const dy = b.y - a.y;
     const mx = (a.x + b.x) / 2;
@@ -143,8 +161,16 @@
     const len = Math.sqrt(dx * dx + dy * dy) || 1;
     const nx = -dy / len;
     const ny = dx / len;
-    const bend = Math.min(60, Math.max(20, len * 0.12));
-    return { x: mx + nx * (bend * 0.65), y: my + ny * (bend * 0.65) - 2 };
+
+    let bend = Math.min(50, Math.max(22, len * 0.12));
+    let flipNormal = false;
+    if (Math.abs(dx) > 300 && Math.abs(dy) < 60) {
+      bend = 80;
+      if (dx < 0) flipNormal = true;
+    }
+    const effNy = flipNormal ? -ny : ny;
+    const effNx = flipNormal ? -nx : nx;
+    return { x: mx + effNx * (bend * 0.65), y: my + effNy * (bend * 0.65) - 2 };
   }
 
   // ------------------------------------------------------------------- lines
@@ -256,13 +282,14 @@
     for (const n of nodes) {
       const pos = layout[n.id] || { x: 460, y: 170 };
       const active = lastMode === n.id;
+      const count = n.count || 0;
       const x = pos.x - NODE_W / 2;
       const y = pos.y - NODE_H / 2;
       svg += `
-        <g class="graph-node ${active ? "active" : ""}">
+        <g class="graph-node mode-${esc(n.id)} ${active ? "active" : ""} ${count === 0 ? "empty" : ""}">
           <rect x="${x}" y="${y}" rx="8" ry="8" width="${NODE_W}" height="${NODE_H}"></rect>
-          <text x="${pos.x}" y="${pos.y - 4}" text-anchor="middle">${esc(n.id)}</text>
-          <text class="count" x="${pos.x}" y="${pos.y + 16}" text-anchor="middle">${n.count || 0} events</text>
+          <text class="node-title" x="${pos.x}" y="${pos.y - 4}" text-anchor="middle">${esc(n.id)}</text>
+          <text class="count" x="${pos.x}" y="${pos.y + 16}" text-anchor="middle">${count} events</text>
         </g>
       `;
     }

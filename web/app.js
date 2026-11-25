@@ -364,21 +364,8 @@
     if (replay.active) {
       // Stay frozen: accumulate history for the replay, buffer the raw stream,
       // and surface how much has piled up behind the scrubber.
-      if (delta.events && delta.events.length) {
-        for (const ev of delta.events) {
-          const exists = replay.events.some((x) => x.seq === ev.seq);
-          if (!exists) replay.events.push(ev);
-          replay.pendingSinceReplay += 1;
-        }
-        replay.events.sort((a, b) => (a.seq || 0) - (b.seq || 0));
-        replay.total = delta.cursor ? (delta.cursor.events || replay.total) : replay.total;
-        if (rpRange.max !== "1") {
-          rpRange.max = String(replay.events.length);
-          rpStep.textContent = `KROK ${replay.index + 1}/${replay.events.length}`;
-        }
-      }
+      absorbIntoReplay(delta.events);
       if (delta.raw_lines && delta.raw_lines.length) replay.pendingRaw.push(...delta.raw_lines);
-      updateExitBadge();
       return;
     }
     if (delta.events && delta.events.length) {
@@ -662,6 +649,33 @@
     rpExitBadge.textContent = replay.pendingSinceReplay > 0 ? `+${replay.pendingSinceReplay}` : "";
   }
 
+  // Fold newly arrived decisions into the replay without repainting the view:
+  // the scrubber window grows, the held step stays put, and the exit badge
+  // counts what came in. Used by both the SSE delta path and the poll fallback.
+  function absorbIntoReplay(events) {
+    if (!events || !events.length) return 0;
+    const known = new Set(replay.events.map((ev) => ev.seq));
+    let arrived = 0;
+    for (const ev of events) {
+      if (known.has(ev.seq)) continue;
+      known.add(ev.seq);
+      replay.events.push(ev);
+      arrived += 1;
+    }
+    if (!arrived) return 0;
+    replay.events.sort((a, b) => (a.seq || 0) - (b.seq || 0));
+    const lastSeq = replay.events[replay.events.length - 1].seq || 0;
+    replay.total = Math.max(replay.total, lastSeq);
+    rpRange.max = String(replay.events.length);
+    rpStep.textContent = `KROK ${replay.index + 1}/${replay.events.length}`;
+    rpNote.textContent = replay.total > replay.events.length
+      ? `zachowane ostatnie ${replay.events.length} z ${replay.total}`
+      : "";
+    replay.pendingSinceReplay += arrived;
+    updateExitBadge();
+    return arrived;
+  }
+
   rpFirst.addEventListener("click", () => jumpReplay(0));
   rpPrev.addEventListener("click", () => stepReplay(-1));
   rpNext.addEventListener("click", () => stepReplay(1));
@@ -680,7 +694,10 @@
   setReplayControlsEnabled(false);
 
   document.addEventListener("keydown", (e) => {
-    if (e.target.closest("input, select, textarea, button")) return;
+    // The target is an element for normal focus, but can be the document itself
+    // (no focus / programmatic dispatch), and Document has no closest().
+    const target = e.target;
+    if (target && typeof target.closest === "function" && target.closest("input, select, textarea, button")) return;
     if (!replay.active) {
       if (e.key === "r" || e.key === "R") { startReplay(); e.preventDefault(); }
       return;
@@ -716,10 +733,16 @@
       const res = await fetch("/api/state", { cache: "no-store" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setLive(true);
-      renderFull(await res.json());
+      const state = await res.json();
+      // Without EventSource the fallback polls the whole snapshot; while
+      // replaying that must only grow the replay window, never repaint it.
+      if (replay.active) absorbIntoReplay(state.events);
+      else renderFull(state);
     } catch (err) {
       setLive(false);
     }
+    // Reschedule unconditionally: an early `return` inside the try used to kill
+    // the poll loop for the rest of the session.
     setTimeout(legacyPoll, 1000);
   }
 

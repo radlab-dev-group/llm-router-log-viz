@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter, deque
 from typing import Dict, List, Optional
 
-from .events import RequestRecord, RouterEventLog, parse_ts_epoch, percentile
+from .events import RouterEventLog, parse_ts_epoch
 from .parser import KNOWN_MODES, RoutingEvent
 
 MAX_RAW_LINES = 400
@@ -14,10 +14,10 @@ BUCKET_S = 30
 
 
 class DashboardState:
-    """Aggregates routing events, correlated requests, sessions and metrics.
+    """Aggregates routing events, correlated requests and sessions.
 
     ``snapshot()`` keeps every key the v0 dashboard consumed and adds
-    ``requests`` / ``sessions`` / ``metrics``.
+    ``requests`` / ``sessions``.
     """
 
     def __init__(self, session_gap_s: float = SESSION_GAP_S) -> None:
@@ -157,77 +157,6 @@ class DashboardState:
         edges.sort(key=lambda e: (-e["count"], e["from"], e["to"]))
         return edges
 
-    # ------------------------------------------------------------- metrics
-    @staticmethod
-    def _summarize(values: List[float]) -> dict:
-        ordered = sorted(values)
-        return {
-            "count": len(ordered),
-            "avg_ms": round(sum(ordered) / len(ordered), 1) if ordered else None,
-            "p50_ms": round(percentile(ordered, 50), 1) if ordered else None,
-            "p95_ms": round(percentile(ordered, 95), 1) if ordered else None,
-            "max_ms": round(ordered[-1], 1) if ordered else None,
-        }
-
-    def metrics(self) -> dict:
-        records = self.requests.requests
-        durations = [r.duration_ms for r in records if r.duration_ms is not None]
-        by_mode: Dict[str, List[float]] = {}
-        by_provider: Dict[str, List[float]] = {}
-        for record in records:
-            if record.duration_ms is None:
-                continue
-            if record.mode:
-                by_mode.setdefault(record.mode, []).append(record.duration_ms)
-            if record.provider and record.provider != "-":
-                by_provider.setdefault(record.provider, []).append(record.duration_ms)
-
-        errors = [r for r in records if r.is_error]
-        return {
-            "total_requests": len(records),
-            "completed_requests": len(durations),
-            "open_requests": sum(
-                1 for r in records if r.duration_ms is None and r.status is None
-            ),
-            "errors": len(errors),
-            "error_rate": round(len(errors) / len(records), 4) if records else 0.0,
-            "latency": self._summarize(durations),
-            "latency_by_mode": {m: self._summarize(v) for m, v in sorted(by_mode.items())},
-            "latency_by_provider": {m: self._summarize(v) for m, v in sorted(by_provider.items())},
-            "time_series": self._time_series(),
-        }
-
-    def _time_series(self) -> List[dict]:
-        epochs = [r.ts_epoch for r in self.requests.requests if r.ts_epoch is not None]
-        if not epochs:
-            return []
-        start = int(min(epochs) // BUCKET_S) * BUCKET_S
-        end = int(max(epochs) // BUCKET_S) * BUCKET_S
-        buckets: Dict[int, dict] = {}
-        for record in self.requests.requests:
-            if record.ts_epoch is None:
-                continue
-            key = int(record.ts_epoch // BUCKET_S) * BUCKET_S
-            bucket = buckets.setdefault(key, {"requests": 0, "sum_ms": 0.0, "n_ms": 0})
-            bucket["requests"] += 1
-            if record.duration_ms is not None:
-                bucket["sum_ms"] += record.duration_ms
-                bucket["n_ms"] += 1
-        series = []
-        for key in range(start, end + BUCKET_S, BUCKET_S):
-            bucket = buckets.get(key)
-            series.append(
-                {
-                    "t": key,
-                    "requests": bucket["requests"] if bucket else 0,
-                    "avg_ms": round(bucket["sum_ms"] / bucket["n_ms"], 1)
-                    if bucket and bucket["n_ms"]
-                    else None,
-                }
-            )
-        return series
-
-    # ------------------------------------------------------------- snapshot
     def _sessions_view(self) -> List[dict]:
         return [
             {
@@ -241,7 +170,7 @@ class DashboardState:
         ]
 
     def aggregates(self) -> dict:
-        """Derived views recomputed on demand: graph, counters and metrics."""
+        """Derived views recomputed on demand: graph and counters."""
         return {
             "nodes": self._nodes(),
             "edges": self._edges(),
@@ -254,7 +183,6 @@ class DashboardState:
             "total_events": self.total_events,
             "last_event": self.last_event,
             "sessions": self._sessions_view(),
-            "metrics": self.metrics(),
         }
 
     def snapshot(self) -> dict:

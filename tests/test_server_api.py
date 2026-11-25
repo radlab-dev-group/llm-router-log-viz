@@ -33,18 +33,16 @@ def _wait_for(tmp_path=None, client=None, timeout: float = 3.0) -> dict:
     raise AssertionError("state did not populate in time")
 
 
-def test_state_and_metrics_endpoints(tmp_path):
+def test_state_endpoint(tmp_path):
     text = "\n".join([POST, ROUTING, PROVIDER, RESPONSE]) + "\n"
     with _client(tmp_path, text) as client:
         assert client.get("/api/health").json() == {"status": "ok"}
         state = _wait_for(client=client)
-        assert state["metrics"]["completed_requests"] == 1
-        assert state["metrics"]["latency_by_mode"]["plan"]["p50_ms"] == 2666.0
         assert len(state["requests"]) == 1
+        assert state["requests"][0]["duration_ms"] == 2666.0
+        assert state["requests"][0]["status"] == 200
         assert state["cursor"]["events"] == 1
-
-        metrics = client.get("/api/metrics").json()
-        assert metrics["total_requests"] == 1
+        assert state["cursor"]["requests"] == 1
 
 
 def test_index_and_static_are_served(tmp_path):
@@ -85,7 +83,6 @@ def test_wait_for_update_returns_delta_with_new_records(tmp_path):
         assert [r["mode"] for r in delta["requests"]] == ["plan"]
         assert delta["requests"][0]["duration_ms"] == 2666.0
         assert delta["cursor"]["events"] == 1
-        assert delta["metrics"]["completed_requests"] == 1
 
         # A cursor already at HEAD times out instead of replaying old data.
         assert ctx.wait_for_update(delta["cursor"], timeout=0.2) is None

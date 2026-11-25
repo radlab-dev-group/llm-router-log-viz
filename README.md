@@ -7,9 +7,7 @@ Pokazuje w jednym oknie:
 - **CODEX ROUTING (EXTRACTED)** – tylko wycięte linie `Codex routing: ...`,
 - **PHASE TRANSITION DIAGRAM** – graf przejść między kolejnymi decyzjami routingu,
 - **TIMELINE / COUNTERS** – ostatnie zdarzenia i agregaty,
-- **SESSIONS** – pasek sesji: przerwa w ruchu dłuższa niż `--session-gap` otwiera nową sesję,
-- **LATENCY / REQUESTS** (na całą szerokość) – korelacja `POST` → decyzja → `Selected provider`
-  → `Response …duration_ms` (avg / p50 / p95 per mode i per provider, errors, sparkline czasu).
+- **SESSIONS** – pasek sesji: przerwa w ruchu dłuższa niż `--session-gap` otwiera nową sesję.
 
 > Uwaga: dashboard wizualizuje **decyzje routingu z logów**, nie wewnętrzny „stan myślenia” modelu.
 
@@ -61,6 +59,8 @@ Poza liniami `Codex routing:` parser czyta też linie `POST /v1/responses`, `Sel
 oraz `Response <kod> /v1/responses duration_ms=…` i składa je w jeden rekord requestu. Założenie:
 jeden router obsługuje na raz jeden request (`POST` → decyzja → provider → `Response`). Decyzja
 bez otwartego `POST` startuje własny rekord, więc ręcznie dopisane linie demo też się spinają.
+Rekordy widać w `/api/state` (klucz `requests`), a czas odpowiedzi wyświetlany jest inline jako
+`dur=` przy wyciętej linii `Codex routing`.
 
 Każda decyzja dostaje `ts_epoch`, a przerwa większa niż `--session-gap` (domyślnie 120 s) otwiera
 nową sesję. Przejścia między trybami liczone są **w obrębie sesji** — pierwsza decyzja nowej sesji
@@ -70,8 +70,7 @@ nie tworzy krawędzi z ostatniej decyzji sesji poprzedniej.
 
 | Endpoint | Opis |
 | --- | --- |
-| `GET /api/state` | Pełny snapshot (zdarzenia, surowe linie, requesty, sesje, metryki, kursor). |
-| `GET /api/metrics` | Same agregaty latencji/liczników. |
+| `GET /api/state` | Pełny snapshot (zdarzenia, surowe linie, requesty, sesje, kursor). |
 | `GET /api/stream` | SSE: najpierw event `full`, potem `delta` z przyrostem linii i przeliczonymi agregatami. |
 
 Frontend używa `EventSource` i dopisuje tylko nowe linie (bez pełnego renderu co sekundę);
@@ -87,7 +86,7 @@ llm-router-log-viz/
     router_sample.log
   src/llm_router_log_viz/
     parser.py      # parsowanie linii Codex routing
-    events.py      # korelacja POST/decyzja/provider/Response + percentyle
+    events.py      # korelacja POST/decyzja/provider/Response
     state.py       # sesje, liczniki, przejścia per sesja, metryki
     watcher.py     # tail/follow pliku logu
     server.py      # FastAPI + API + SSE + serwowanie frontendu
@@ -101,7 +100,6 @@ llm-router-log-viz/
     test_watcher.py
     test_events.py
     test_sessions.py
-    test_metrics.py
     test_server_api.py
   scripts/
     demo_commands.md

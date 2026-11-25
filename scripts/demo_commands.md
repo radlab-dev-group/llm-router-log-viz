@@ -28,7 +28,7 @@ LOG
 - lewy dolny: diagram przejść faz (grubość krawędzi = licznik),
 - prawy dolny: liczniki i timeline,
 - pasek SESSIONS: dopisz linię z przerwą > `--session-gap` → pojawia się chip `S2`,
-- LATENCY (na całą szerokość): p50/p95 per mode i per provider — statystyki pojawiają się dopiero, gdy w logu są linie `Response …`.
+- licznik `req:` w nagłówku: rośnie z każdym skorelowanym `POST`; czas odpowiedzi widać inline jako `dur=` przy wyciętych liniach.
 
 ## 5. Miejsca do celowego "zepsucia" przed demo
 - `src/llm_router_log_viz/state.py` — policz przejścia inaczej / pomiń `git_review`.

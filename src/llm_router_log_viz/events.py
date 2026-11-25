@@ -40,19 +40,6 @@ def parse_ts_epoch(ts: str) -> Optional[float]:
     return None
 
 
-def percentile(sorted_values: List[float], pct: float) -> Optional[float]:
-    """Linear-interpolated percentile over an already sorted list."""
-    if not sorted_values:
-        return None
-    if len(sorted_values) == 1:
-        return sorted_values[0]
-    position = (len(sorted_values) - 1) * (pct / 100.0)
-    lo = int(position)
-    hi = min(lo + 1, len(sorted_values) - 1)
-    frac = position - lo
-    return sorted_values[lo] * (1 - frac) + sorted_values[hi] * frac
-
-
 @dataclass
 class RequestRecord:
     """One router request: POST -> routing decision -> provider -> Response."""

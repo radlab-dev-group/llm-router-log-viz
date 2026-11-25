@@ -36,9 +36,6 @@
   const rawAuto = document.getElementById("raw-autoscroll");
   const codexAuto = document.getElementById("codex-autoscroll");
   const sessionStripEl = document.getElementById("session-strip");
-  const latencySummaryEl = document.getElementById("latency-summary");
-  const latencyBodyEl = document.getElementById("latency-body");
-  const latencySparkEl = document.getElementById("latency-spark");
 
   // Client-side mirror of routing events: keeps deltas cheap (append, no refetch).
   let clientEvents = [];
@@ -286,49 +283,6 @@
       (sessions.length > 12 ? `<span class="muted">+${sessions.length - 12}</span>` : "");
   }
 
-  function renderLatency(state) {
-    const m = state.metrics || {};
-    const lat = m.latency || {};
-    latencySummaryEl.innerHTML = `
-      <div class="lstat"><strong>requests</strong><span class="n">${m.total_requests || 0}</span></div>
-      <div class="lstat"><strong>closed</strong><span class="n">${m.completed_requests || 0}</span></div>
-      <div class="lstat"><strong>open</strong><span class="n">${m.open_requests || 0}</span></div>
-      <div class="lstat ${m.errors ? "bad" : ""}"><strong>errors</strong><span class="n">${m.errors || 0}</span></div>
-      <div class="lstat"><strong>p50</strong><span class="n">${fmtMs(lat.p50_ms)}</span></div>
-      <div class="lstat"><strong>p95</strong><span class="n">${fmtMs(lat.p95_ms)}</span></div>`;
-
-    const rows = [];
-    for (const [mode, s] of Object.entries(m.latency_by_mode || {})) {
-      rows.push(`<tr class="lat-mode"><td><span class="badge ${modeClass(mode)}">${esc(mode)}</span></td>
-        <td>${s.count}</td><td>${fmtMs(s.avg_ms)}</td><td>${fmtMs(s.p50_ms)}</td><td>${fmtMs(s.p95_ms)}</td></tr>`);
-    }
-    for (const [provider, s] of Object.entries(m.latency_by_provider || {})) {
-      rows.push(`<tr class="lat-provider"><td><span class="provider-tag">${esc(provider)}</span></td>
-        <td>${s.count}</td><td>${fmtMs(s.avg_ms)}</td><td>${fmtMs(s.p50_ms)}</td><td>${fmtMs(s.p95_ms)}</td></tr>`);
-    }
-    latencyBodyEl.innerHTML = rows.join("") || `<tr><td colspan="5" class="muted">brak domkniętych requestów</td></tr>`;
-    renderSpark(m.time_series || []);
-  }
-
-  function renderSpark(series) {
-    const w = 460, h = 60;
-    if (series.length < 2) {
-      latencySparkEl.innerHTML = `<text x="4" y="14" class="spark-empty">rozkład czasu odpowiedzi pojawi się po ≥2 kubełkach</text>`;
-      return;
-    }
-    const maxReq = Math.max(...series.map(s => s.requests), 1);
-    const step = w / Math.max(series.length - 1, 1);
-    const bars = series.map((s, i) => {
-      const bh = (s.requests / maxReq) * (h - 6);
-      return `<rect class="spark-bar" x="${(i * step).toFixed(1)}" y="${(h - bh).toFixed(1)}" width="${Math.max(step - 1.5, 1).toFixed(1)}" height="${bh.toFixed(1)}"></rect>`;
-    }).join("");
-    const points = series
-      .filter(s => s.avg_ms != null)
-      .map((s, i) => `${((i + 0.5) * step).toFixed(1)},${(h - Math.min(s.avg_ms / 20000, 1) * (h - 6)).toFixed(1)}`)
-      .join(" ");
-    latencySparkEl.innerHTML = bars + (points ? `<polyline class="spark-line" points="${points}"></polyline>` : "");
-  }
-
   // ------------------------------------------------------------------ render
   let lastState = null;
 
@@ -336,8 +290,8 @@
     logPathEl.textContent = state.log_path || logPathEl.textContent || "—";
     eventCountEl.textContent = String(state.total_events || 0);
     lastModeEl.textContent = state.last_event ? state.last_event.mode : "—";
-    const reqs = state.metrics ? state.metrics.total_requests : (state.requests || []).length;
-    reqCountEl.textContent = String(reqs || 0);
+    const cursor = state.cursor || {};
+    reqCountEl.textContent = String(cursor.requests != null ? cursor.requests : (state.requests || []).length);
   }
 
   function renderFull(state) {
@@ -351,7 +305,6 @@
     renderTimeline();
     renderGraph(state);
     renderSessions(state);
-    renderLatency(state);
   }
 
   function renderDelta(delta) {
@@ -366,7 +319,6 @@
     renderTimeline();
     renderGraph(lastState);
     renderSessions(lastState);
-    renderLatency(lastState);
   }
 
   // ---------------------------------------------------------------- streaming

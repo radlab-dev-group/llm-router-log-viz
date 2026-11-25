@@ -92,9 +92,9 @@ header, main, footer { position: relative; z-index: 1; }
   display: grid;
   grid-template-columns: 1fr 1fr;
   /* Maxima are viewport-clamped on purpose: a panel that grows (more timeline
-     rows, more latency rows) must not stretch its track, otherwise the graph
-     box changes height and the diagram visibly drifts. */
-  grid-template-rows: minmax(280px, 38vh) minmax(300px, 44vh) minmax(240px, 38vh);
+     rows) must not stretch its track, otherwise the graph box changes height
+     and the diagram visibly drifts. */
+  grid-template-rows: minmax(280px, 44vh) minmax(300px, 50vh);
   gap: 14px;
   padding: 14px 20px 20px;
 }
@@ -221,34 +221,6 @@ header, main, footer { position: relative; z-index: 1; }
   font-family: var(--mono); font-size: 10px; color: var(--blue);
   border: 1px solid var(--blue-border); border-radius: 4px; padding: 0 4px;
 }
-
-/* ------------------------------------------------------------------ latency */
-.panel-latency { grid-column: 1 / -1; }
-.latency-body { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
-.latency-summary { display: flex; flex-wrap: wrap; gap: 8px; }
-.lstat {
-  display: flex; flex-direction: column; gap: 2px; min-width: 74px;
-  padding: 6px 10px; border-radius: 6px;
-  background: var(--panel-3); border: 1px solid var(--line);
-}
-.lstat strong { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; color: var(--fg-faint); font-weight: 600; }
-.lstat .n { font-family: var(--mono); font-size: 15px; color: var(--fg-strong); }
-.lstat.bad .n { color: var(--red); }
-
-.spark-wrap { width: 100%; height: 60px; border: 1px solid var(--line-soft); border-radius: 6px; background: rgba(0,0,0,0.18); }
-#latency-spark { width: 100%; height: 100%; display: block; }
-.spark-bar { fill: rgba(90,169,255,0.28); }
-.spark-line { fill: none; stroke: var(--mint); stroke-width: 1.4; }
-.spark-empty { fill: var(--fg-faint); font-family: var(--mono); font-size: 11px; }
-
-.latency-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
-.latency-table th {
-  text-align: left; padding: 5px 8px; color: var(--fg-faint); font-weight: 600;
-  border-bottom: 1px solid var(--line); letter-spacing: 0.04em;
-}
-.latency-table td { padding: 4px 8px; border-bottom: 1px solid var(--line-soft); color: var(--fg-dim); }
-.latency-table tr.lat-mode td { color: var(--fg); }
-.provider-tag { color: var(--purple); }
 
 @media (max-width: 1100px) {
   .grid { grid-template-columns: 1fr; grid-template-rows: auto; }

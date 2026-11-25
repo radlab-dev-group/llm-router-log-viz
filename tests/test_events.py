@@ -2,7 +2,6 @@ from llm_router_log_viz.events import (
     RouterEventLog,
     parse_router_line,
     parse_ts_epoch,
-    percentile,
 )
 
 
@@ -74,14 +73,6 @@ def test_multiple_requests_close_in_order():
     assert len(log.requests) == 2
     assert log.open_request is not None
     assert log.open_request.mode == "implement"
-
-
-def test_percentile():
-    assert percentile([1.0, 2.0, 3.0, 4.0], 50) == 2.5
-    assert percentile([10.0], 95) == 10.0
-    assert percentile([], 95) is None
-    values = [float(i) for i in range(1, 21)]
-    assert percentile(values, 95) == 19.05
 
 
 def test_parse_ts_epoch():

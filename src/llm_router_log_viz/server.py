@@ -132,10 +132,6 @@ class AppContext:
         snap["session_gap_s"] = self.session_gap_s
         return snap
 
-    def metrics(self) -> Dict:
-        with self.lock:
-            return self.state.metrics()
-
     # ------------------------------------------------------------- lifecycle
     def start(self) -> None:
         self.watcher = LogWatcher(
@@ -191,10 +187,6 @@ def create_app(
     @app.get("/api/state")
     async def state():
         return ctx.snapshot()
-
-    @app.get("/api/metrics")
-    async def metrics():
-        return ctx.metrics()
 
     @app.get("/api/stream")
     async def stream(request: Request):

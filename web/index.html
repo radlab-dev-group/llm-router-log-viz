@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LLM Router Log Viz</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <span class="brand-title">llm-router-log-viz</span>
+      <span class="brand-sub">codex routing live view</span>
+    </div>
+    <div class="status-row">
+      <div class="pill" id="live-pill"><span class="dot"></span><span id="live-text">CONNECTING</span></div>
+      <div class="meta">log: <span id="log-path" class="mono">—</span></div>
+      <div class="meta">events: <span id="event-count" class="mono">0</span></div>
+      <div class="meta">last: <span id="last-mode" class="mono">—</span></div>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="panel panel-raw">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">RAW ROUTER LOG</div>
+          <div class="panel-sub">pełny strumień logów</div>
+        </div>
+        <div class="panel-actions">
+          <label class="toggle"><input type="checkbox" id="raw-autoscroll" checked /> auto-scroll</label>
+        </div>
+      </div>
+      <div class="terminal" id="raw-log"></div>
+    </section>
+
+    <section class="panel panel-codex">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">CODEX ROUTING (EXTRACTED)</div>
+          <div class="panel-sub">wycięte decyzje Codexa</div>
+        </div>
+        <div class="panel-actions">
+          <label class="toggle"><input type="checkbox" id="codex-autoscroll" checked /> auto-scroll</label>
+        </div>
+      </div>
+      <div class="terminal" id="codex-log"></div>
+    </section>
+
+    <section class="panel panel-graph">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">PHASE TRANSITION DIAGRAM</div>
+          <div class="panel-sub">przejścia między kolejnymi decyzjami routingu</div>
+        </div>
+        <div class="panel-actions">
+          <span class="legend-item"><span class="sw sw-mint"></span>aktywny</span>
+          <span class="legend-item"><span class="sw sw-line"></span>przejście</span>
+        </div>
+      </div>
+      <div class="graph-wrap">
+        <svg id="phase-graph" viewBox="0 0 920 360" preserveAspectRatio="xMidYMid meet"></svg>
+      </div>
+    </section>
+
+    <section class="panel panel-timeline">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">TIMELINE / COUNTERS</div>
+          <div class="panel-sub">ostatnie decyzje i agregaty</div>
+        </div>
+      </div>
+      <div class="timeline-body">
+        <div class="counters" id="counters"></div>
+        <div class="timeline-table-wrap">
+          <table class="timeline-table">
+            <thead>
+              <tr>
+                <th>czas</th>
+                <th>mode</th>
+                <th>source</th>
+                <th>class</th>
+                <th>model</th>
+              </tr>
+            </thead>
+            <tbody id="timeline-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>llm-router-log-viz</span>
+    <span class="muted">wizualizacja decyzji routingu z logów — nie wewnętrzny stan modelu</span>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>

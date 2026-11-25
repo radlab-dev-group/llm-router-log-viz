@@ -6,9 +6,12 @@ A small, local dashboard that visualises **Codex routing decisions live** from
 It tails a router log file, extracts the routing decisions and shows them in one window:
 
 - **RAW ROUTER LOG** – the full log stream, terminal style
-- **CODEX ROUTING (EXTRACTED)** – only the `Codex routing: ...` lines
+- **CODEX ROUTING (EXTRACTED)** – only the `Codex routing: ...` decisions, each enriched
+  with the backend host, HTTP status and response time of the request it decided, plus the
+  semantic classifier's margin/target from the `CodexRouting: ...` line
 - **PHASE TRANSITION DIAGRAM** – graph of transitions between consecutive routing decisions
-- **TIMELINE / COUNTERS** – most recent decisions and aggregate counters
+- **TIMELINE / COUNTERS** – most recent decisions (mode, source, model, backend host, duration)
+  and aggregate counters
 - **SESSIONS** – a session strip; an idle period longer than `--session-gap` opens a new session
 
 The dashboard reads routing **decisions from logs**. It does not expose anything about the
@@ -25,7 +28,7 @@ model's internal state.
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
-llm-router-log-viz --log ./sample_logs/router_sample.log --host 127.0.0.1 --port 8787
+llm-router-log-viz --log ./sample_logs/llm-router.log --host 127.0.0.1 --port 8787
 ```
 
 Open <http://127.0.0.1:8787>.
@@ -42,7 +45,7 @@ The dashboard only **reads** the log file; it never writes to it.
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `--log PATH` | required | Log file to tail |
+| `--log PATH` | required | Log file to tail (e.g. `./sample_logs/llm-router.log`) |
 | `--host HOST` | `127.0.0.1` | Bind address |
 | `--port PORT` | `8787` | Bind port |
 | `--session-gap SEC` | `120` | Idle time that starts a new session |
@@ -53,7 +56,7 @@ The dashboard only **reads** the log file; it never writes to it.
 ## Supported log format
 
 The parser follows the format emitted by `llm-router-plugins`
-(`agentic_routing/codex/plugin.py`):
+(`agentic_routing/codex/plugin.py`) and `llm-router`:
 
 ```text
 Codex routing: mode=plan source=explicit model=qwen/Qwen3.8-Flash-Next similarity=1.000 class=main reason=explicit_agent_mode evidence=explicit memory=disabled semantic=-
@@ -61,17 +64,47 @@ Codex routing: mode=plan source=explicit model=qwen/Qwen3.8-Flash-Next similarit
 
 Parsing is tolerant: shorter variants work as long as the key fields
 (`mode`, `source`, `model`, ...) are present, and unknown fields are ignored.
+Values may contain spaces (e.g. `reason=python3 -m pytest`); the next `key=`
+token delimits the end of a value.
+
+The semantic classifier's raw output is read too, so each decision carries the
+margin between the two closest modes:
+
+```text
+CodexRouting: semantic target=review similarity=0.5605 runner_up=debug runner_similarity=0.5286 margin=0.0320
+```
+
+and the rejected form:
+
+```text
+CodexRouting: semantic match 'review' similarity=0.3627 is below threshold 0.4400
+```
 
 ## Request correlation and sessions
 
-Besides `Codex routing:` lines, the parser reads `POST /v1/...`,
-`Selected provider=...` and `Response <status> ... duration_ms=...` lines and merges
-them into a single request record (`POST` → decision → provider → `Response`). One
-router is assumed to handle one request at a time; a decision that arrives without an
-open `POST` starts its own record, so partial logs and fragments still correlate.
+Besides `Codex routing:` lines, the parser reads the actual `llm-router` request
+lines and merges them into a single request record
+(`[POST]` → decision → `Request model ...` backend → upstream reply):
+
+- `[POST] v1/responses => ['openai', 'lmstudio', ...]` – client request (opens a record)
+- `Request model qwen/... with config id: ... [llama.cpp: http://host:port]` – the backend the load
+  balancer picked (engine + host, and the true dispatch instant for latency)
+- `http://host:port "POST /v1/... HTTP/1.1" 200 None` – the upstream reply logged by urllib3
+  (closes the record; status and duration are derived). Health probes (`GET /`, `GET /health`)
+  are ignored.
+- `Provider request failed: HTTP 400 — ... provider: {"error": {...}}` – the provider error
+  (status, `type`, and `n_prompt_tokens`/`n_ctx` for context-overflow failures)
+
+Concurrent requests are supported: when two requests overlap, the upstream reply is
+matched to the record whose backend host it came from. The legacy
+`POST /v1/... model=...`, `Selected provider=...` and `Response <status> duration_ms=...`
+lines are still recognised, so old-style logs and hand-appended demo lines keep working;
+a decision that arrives without an open `POST` starts its own record, so partial logs
+and fragments still correlate.
 
 Records are exposed under the `requests` key of `/api/state`, and each extracted
-routing line shows its response time inline as `dur=`.
+routing line shows its response time inline as `dur=`, the backend as `host=`, and the
+HTTP status as `http=` (red when >= 400).
 
 Every decision carries a timestamp, and an idle gap longer than `--session-gap`
 (default 120 s) opens a new session. Mode transitions are counted **within a session**:
@@ -97,7 +130,7 @@ llm-router-log-viz/
   pyproject.toml
   README.md
   sample_logs/
-    router_sample.log       # example log for local runs
+    llm-router.log          # example log for local runs (gitignored, drop any router.log here)
   src/llm_router_log_viz/
     parser.py               # parse `Codex routing:` lines
     events.py               # correlate POST / decision / provider / Response

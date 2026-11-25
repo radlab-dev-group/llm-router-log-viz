@@ -5,7 +5,7 @@
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
-llm-router-log-viz --log ./sample_logs/router_sample.log --host 127.0.0.1 --port 8787
+llm-router-log-viz --log ./sample_logs/llm-router.log --host 127.0.0.1 --port 8787
 ```
 
 Open http://127.0.0.1:8787.

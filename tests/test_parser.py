@@ -1,7 +1,9 @@
 from llm_router_log_viz.parser import (
     is_codex_routing_line,
+    is_semantic_routing_line,
     parse_codex_routing_line,
     parse_lines,
+    parse_semantic_routing_line,
 )
 
 
@@ -51,3 +53,45 @@ def test_parse_lines_filters_only_routing_events():
     events = parse_lines(lines)
     assert len(events) == 2
     assert [e.mode for e in events] == ["plan", "test"]
+
+
+def test_multivalue_reason_is_kept_whole():
+    line = (
+        "2026-11-25 23:05:16,439 INFO x: Codex routing: mode=test source=phase "
+        "model=qwen/Qwen3.8-27B similarity=1.000 class=main reason=python3 -m pytest "
+        "evidence=command memory=hit semantic=-"
+    )
+    ev = parse_codex_routing_line(line)
+    assert ev.reason == "python3 -m pytest"
+    assert ev.evidence == "command"
+    assert ev.memory == "hit"
+
+
+def test_semantic_target_line_parses():
+    line = (
+        "2026-11-25 22:54:48,854 INFO x: CodexRouting: semantic target=review "
+        "similarity=0.5605 runner_up=debug runner_similarity=0.5286 margin=0.0320"
+    )
+    sem = parse_semantic_routing_line(line)
+    assert sem["semantic_target"] == "review"
+    assert sem["semantic_similarity"] == 0.5605
+    assert sem["runner_up"] == "debug"
+    assert sem["runner_similarity"] == 0.5286
+    assert sem["margin"] == 0.0320
+    assert sem["semantic_threshold"] is None
+
+
+def test_semantic_below_threshold_line_parses():
+    line = "2026-11-25 22:55:23,765 INFO x: CodexRouting: semantic match 'review' similarity=0.3627 is below threshold 0.4400"
+    sem = parse_semantic_routing_line(line)
+    assert sem["semantic_target"] == "review"
+    assert sem["semantic_similarity"] == 0.3627
+    assert sem["semantic_threshold"] == 0.44
+    assert sem["margin"] is None
+
+
+def test_semantic_line_is_not_a_decision():
+    line = "CodexRouting: semantic target=review similarity=0.5 runner_up=debug runner_similarity=0.4 margin=0.1"
+    assert parse_codex_routing_line(line) is None
+    assert is_codex_routing_line(line) is False
+    assert is_semantic_routing_line(line) is True

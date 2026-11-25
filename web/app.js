@@ -160,13 +160,19 @@
     const latency = ev.duration_ms != null
       ? ` <span class="kv"><span class="k">dur</span>=<span class="v">${fmtMs(ev.duration_ms)}</span></span>`
       : "";
+    const status = ev.status != null
+      ? ` <span class="kv"><span class="k">http</span>=<span class="v ${ev.status >= 400 ? "err" : ""}">${ev.status}</span></span>`
+      : "";
+    const host = ev.host
+      ? ` <span class="kv"><span class="k">host</span>=<span class="v">${esc(ev.host.replace(/^https?:\/\//, ""))}</span></span>`
+      : "";
     const rest = [
       `<span class="kv"><span class="k">source</span>=<span class="v src">${esc(ev.source)}</span></span>`,
       `<span class="kv"><span class="k">class</span>=<span class="v cls">${esc(ev.class || ev.request_class || "-")}</span></span>`,
       `<span class="kv"><span class="k">model</span>=<span class="v model">${esc(ev.model)}</span></span>`,
       `<span class="kv"><span class="k">sim</span>=<span class="v">${ev.similarity == null ? "-" : Number(ev.similarity).toFixed(3)}</span></span>`,
     ].join(" ");
-    return `<div class="log-line codex">${session}${ts}${mode} ${rest}${latency}</div>`;
+    return `<div class="log-line codex">${session}${ts}${mode} ${rest}${host}${status}${latency}</div>`;
   }
 
   function trimDom(el) {
@@ -209,8 +215,9 @@
         <td>${esc(shortTs(ev.ts))}</td>
         <td><span class="badge ${modeClass(ev.mode)}">${esc(ev.mode)}</span></td>
         <td>${esc(ev.source || "-")}</td>
-        <td>${esc(ev.class || ev.request_class || "-")}</td>
         <td class="model-cell" title="${esc(ev.model || "-")}">${esc(ev.model || "-")}</td>
+        <td class="host-cell" title="${esc(ev.host || "-")}">${esc((ev.host || "-").replace(/^https?:\/\//, ""))}</td>
+        <td class="${ev.duration_ms != null ? "" : "muted"}">${ev.duration_ms != null ? fmtMs(ev.duration_ms) : "—"}</td>
       </tr>
     `).join("");
   }

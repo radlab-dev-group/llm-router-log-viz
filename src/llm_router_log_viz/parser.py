@@ -11,8 +11,9 @@ _TIMESTAMP_RE = re.compile(
     r"(?P<ts>\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d{1,6})?)"
 )
 
-# Key=value pairs. Values are non-whitespace tokens; we keep it tolerant.
-_KV_RE = re.compile(r"(?P<key>[a-zA-Z_]+)=(?P<value>[^\s]+)")
+# Key=value pairs. A value runs until the next " key=" token, so multi-word
+# values survive (e.g. reason=git add). We keep it tolerant.
+_KV_RE = re.compile(r"(?P<key>[a-zA-Z_]+)=(?P<value>.*?)(?= [a-zA-Z_]+=|$)")
 
 KNOWN_MODES = [
     "plan",
@@ -39,7 +40,13 @@ class RoutingEvent:
     evidence: str
     memory: str
     semantic: str
-    line_no: int
+    semantic_target: str = "-"
+    semantic_similarity: Optional[float] = None
+    runner_up: str = "-"
+    runner_similarity: Optional[float] = None
+    margin: Optional[float] = None
+    semantic_threshold: Optional[float] = None
+    line_no: int = 0
 
     def to_dict(self) -> Dict:
         data = asdict(self)
@@ -47,8 +54,66 @@ class RoutingEvent:
         return data
 
 
+SEMANTIC_ROUTING_MARKER = "CodexRouting:"
+
+
 def is_codex_routing_line(line: str) -> bool:
     return CODEX_ROUTING_MARKER in line
+
+
+_SEMANTIC_TARGET_RE = re.compile(
+    r"semantic target=(?P<target>\S+) similarity=(?P<sim>\S+)"
+    r"(?: runner_up=(?P<runner>\S+) runner_similarity=(?P<runner_sim>\S+) margin=(?P<margin>\S+))?"
+)
+_SEMANTIC_BELOW_RE = re.compile(
+    r"semantic match '(?P<target>[^']*)' similarity=(?P<sim>\S+) is below threshold (?P<threshold>\S+)"
+)
+
+
+def is_semantic_routing_line(line: str) -> bool:
+    return SEMANTIC_ROUTING_MARKER in line
+
+
+def parse_semantic_routing_line(line: str, line_no: int = 0) -> Optional[Dict]:
+    """Parse the ``CodexRouting:`` semantic-classifier line that precedes a
+    ``Codex routing:`` decision.
+
+    Two shapes exist in the wild:
+      CodexRouting: semantic target=X similarity=S runner_up=Y runner_similarity=R margin=M
+      CodexRouting: semantic match 'X' similarity=S is below threshold T
+    Returns None if the line is not one of them.
+    """
+    if not is_semantic_routing_line(line):
+        return None
+
+    payload = line[line.index(SEMANTIC_ROUTING_MARKER) + len(SEMANTIC_ROUTING_MARKER):].strip()
+    m = _SEMANTIC_TARGET_RE.search(payload)
+    if m is not None:
+        return {
+            "ts": extract_timestamp(line),
+            "semantic_target": m.group("target") or "-",
+            "semantic_similarity": _parse_similarity(m.group("sim")),
+            "runner_up": m.group("runner") or "-",
+            "runner_similarity": _parse_similarity(m.group("runner_sim") or "") if m.group("runner_sim") else None,
+            "margin": _parse_similarity(m.group("margin") or "") if m.group("margin") else None,
+            "semantic_threshold": None,
+            "line_no": line_no,
+        }
+
+    m = _SEMANTIC_BELOW_RE.search(payload)
+    if m is not None:
+        return {
+            "ts": extract_timestamp(line),
+            "semantic_target": m.group("target") or "-",
+            "semantic_similarity": _parse_similarity(m.group("sim")),
+            "runner_up": "-",
+            "runner_similarity": None,
+            "margin": None,
+            "semantic_threshold": _parse_similarity(m.group("threshold")),
+            "line_no": line_no,
+        }
+
+    return None
 
 
 def extract_timestamp(line: str) -> str:
@@ -100,6 +165,24 @@ def parse_codex_routing_line(line: str, line_no: int = 0) -> Optional[RoutingEve
         semantic=semantic,
         line_no=line_no,
     )
+
+
+def attach_semantic(event: RoutingEvent, semantic: Optional[Dict]) -> RoutingEvent:
+    """Attach a parsed ``CodexRouting:`` payload to a routing decision.
+
+    The semantic line is the classifier's raw output; the decision line is what
+    was finally routed. Keeping both lets the dashboard show target-vs-final
+    mode, margins and threshold rejections.
+    """
+    if event is None or not semantic:
+        return event
+    event.semantic_target = semantic.get("semantic_target", "-") or "-"
+    event.semantic_similarity = semantic.get("semantic_similarity")
+    event.runner_up = semantic.get("runner_up", "-") or "-"
+    event.runner_similarity = semantic.get("runner_similarity")
+    event.margin = semantic.get("margin")
+    event.semantic_threshold = semantic.get("semantic_threshold")
+    return event
 
 
 def parse_lines(lines: list[str], start_line_no: int = 1) -> list[RoutingEvent]:

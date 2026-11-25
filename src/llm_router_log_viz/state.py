@@ -35,6 +35,7 @@ class DashboardState:
         self.last_event: Optional[dict] = None
         self.sessions: List[dict] = []
         self._last_routing_epoch: Optional[float] = None
+        self._event_by_line: Dict[int, dict] = {}
 
     # ----------------------------------------------------------------- raw
     def add_raw_line(self, line: str) -> None:
@@ -89,6 +90,8 @@ class DashboardState:
         self.events.append(ev)
         if len(self.events) > MAX_EVENTS:
             self.events.pop(0)
+        if event.line_no:
+            self._event_by_line[event.line_no] = ev
 
         self.total_events += 1
         self.mode_counts[event.mode] += 1
@@ -121,8 +124,20 @@ class DashboardState:
         kind, record = result
         if kind == "routing" and record is not None and record.routing is not None:
             ev = self.add_event(record.routing)
+            ev["duration_ms"] = record.duration_ms
+            ev["status"] = record.status
+            ev["host"] = record.host
             record.session = ev["session"]
         elif record is not None and self.sessions:
+            record.session = self.sessions[-1]["id"]
+        # The reply / backend lines arrive after the decision; refresh the
+        # stored event dict so the dashboard shows dur=/http=/host= inline.
+        if record is not None and record.routing is not None:
+            ev = self._event_by_line.get(record.routing.line_no)
+            if ev is not None:
+                ev["duration_ms"] = record.duration_ms
+                ev["status"] = record.status
+                ev["host"] = record.host
             record.session = self.sessions[-1]["id"]
         if len(self.requests.requests) > MAX_REQUESTS:
             self.requests.requests.pop(0)

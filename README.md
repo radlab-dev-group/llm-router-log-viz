@@ -49,9 +49,33 @@ The dashboard only **reads** the log file; it never writes to it.
 | `--host HOST` | `127.0.0.1` | Bind address |
 | `--port PORT` | `8787` | Bind port |
 | `--session-gap SEC` | `120` | Idle time that starts a new session |
+| `--max-events N` | `5000` | Routing decisions kept in memory for replay |
 | `--poll-interval SEC` | `0.5` | How often the log file is polled |
 | `--no-follow` | off | Read existing content, then stop |
 | `--read-from-end` | off | Ignore existing content, follow new lines only |
+
+## Step-by-step replay
+
+The bottom **replay bar** plays back the agent's routing decisions one step at
+a time. While replaying, every panel (phase transition diagram, counters,
+timeline, sessions) is recomputed from the decisions seen *so far*, and the
+current decision is highlighted in the CODEX ROUTING panel — so you can watch
+the phase diagram grow step by step.
+
+- Start replay with the **REPLAY OFF** pill in the top bar, with `R`, or with
+  `▶` in the bar: it fetches the retained history (`GET /api/events`), jumps to
+  the first decision and plays it back at a fixed 1 s/step (speed selector
+  `0.5×`–`4×`).
+- `⏮ ◀ ▶/⏸ ⏭` and the scrubber move through the history; `● LIVE`, `Esc` or
+  `R` exits replay and resynchronises the live view from `GET /api/state`.
+- Keyboard (outside form controls): `←`/`→` step, `Space` play/pause,
+  `Home`/`End` first/last step, `R` toggle replay, `Esc` back to live.
+- While replaying, the live stream keeps accumulating in the background: the
+  `● LIVE +N` badge counts new decisions, and the RAW log panel is frozen
+  (`FROZEN`) with its incoming lines buffered and repainted on exit.
+
+The server retains the last `--max-events` decisions for replay; when the log
+holds more, the readout shows `zachowane ostatnie N z M` (retained window).
 
 ## Supported log format
 

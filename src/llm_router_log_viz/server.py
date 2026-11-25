@@ -9,11 +9,11 @@ from typing import Dict, Optional
 
 import anyio
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from .state import DashboardState
+from .state import MAX_EVENTS, DashboardState
 from .watcher import LogWatcher
 
 SSE_KEEPALIVE_S = 15.0
@@ -50,13 +50,14 @@ class AppContext:
         read_from_start: bool = True,
         session_gap_s: float = 120.0,
         poll_interval: float = 0.5,
+        max_events: int = MAX_EVENTS,
     ) -> None:
         self.log_path = str(Path(log_path).resolve())
         self.follow = follow
         self.read_from_start = read_from_start
         self.session_gap_s = session_gap_s
         self.poll_interval = poll_interval
-        self.state = DashboardState(session_gap_s=session_gap_s)
+        self.state = DashboardState(session_gap_s=session_gap_s, max_events=max_events)
         self.lock = threading.Lock()
         self.condition = threading.Condition(self.lock)
         self.version = 0
@@ -123,6 +124,30 @@ class AppContext:
                 self.condition.wait(remaining)
             return self._delta_locked(since)
 
+    def events(self, after: int = 0, limit: Optional[int] = None) -> Dict:
+        """Retained routing decisions, oldest first, for step-by-step replay.
+
+        The SSE snapshot only carries what a live view needs; the replay UI
+        walks the whole retained window, so it pages through here instead.
+        ``after`` keeps events with a higher ``seq`` (forward paging) and
+        ``limit`` caps how many are returned per page.
+        """
+        with self.lock:
+            retained = list(self.state.events)
+            window = [ev for ev in retained if int(ev.get("seq", 0)) > int(after)]
+            if limit is not None:
+                window = window[: int(limit)]
+            payload = {
+                "events": window,
+                "total": self.state.total_events,
+                "retained": len(retained),
+                "first_seq": int(retained[0]["seq"]) if retained else 0,
+                "max_events": self.state.max_events,
+                "session_gap_s": self.state.session_gap_s,
+                "cursor": self._cursor_locked(),
+            }
+        return payload
+
     def snapshot(self) -> Dict:
         with self.lock:
             snap = self.state.snapshot()
@@ -160,6 +185,7 @@ def create_app(
     read_from_start: bool = True,
     session_gap_s: float = 120.0,
     poll_interval: float = 0.5,
+    max_events: int = MAX_EVENTS,
 ) -> FastAPI:
     web_dir = find_web_dir()
     ctx = AppContext(
@@ -168,6 +194,7 @@ def create_app(
         read_from_start=read_from_start,
         session_gap_s=session_gap_s,
         poll_interval=poll_interval,
+        max_events=max_events,
     )
     app = FastAPI(title="LLM Router Log Viz")
     app.state.ctx = ctx
@@ -187,6 +214,13 @@ def create_app(
     @app.get("/api/state")
     async def state():
         return ctx.snapshot()
+
+    @app.get("/api/events")
+    async def events(
+        after: int = Query(0, ge=0, description="Only return decisions with a higher seq"),
+        limit: Optional[int] = Query(None, ge=1, description="Max decisions per page"),
+    ):
+        return ctx.events(after=after, limit=limit)
 
     @app.get("/api/stream")
     async def stream(request: Request):
@@ -231,6 +265,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Idle time (seconds) that starts a new session (default: 120)",
     )
     p.add_argument(
+        "--max-events",
+        type=int,
+        default=MAX_EVENTS,
+        help=f"Routing decisions kept in memory for replay (default: {MAX_EVENTS})",
+    )
+    p.add_argument(
         "--poll-interval",
         type=float,
         default=0.5,
@@ -247,6 +287,7 @@ def main(argv: Optional[list[str]] = None) -> None:
         read_from_start=not args.read_from_end,
         session_gap_s=args.session_gap,
         poll_interval=args.poll_interval,
+        max_events=args.max_events,
     )
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
 

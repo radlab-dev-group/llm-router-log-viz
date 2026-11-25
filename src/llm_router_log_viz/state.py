@@ -7,7 +7,9 @@ from .events import RouterEventLog, parse_ts_epoch
 from .parser import KNOWN_MODES, RoutingEvent
 
 MAX_RAW_LINES = 400
-MAX_EVENTS = 500
+# Routing decisions are small dicts and the replay UI walks them, so the
+# retention window is deliberately wider than one screen of history.
+MAX_EVENTS = 5000
 MAX_REQUESTS = 2000
 SESSION_GAP_S = 120.0
 BUCKET_S = 30
@@ -20,8 +22,9 @@ class DashboardState:
     ``requests`` / ``sessions``.
     """
 
-    def __init__(self, session_gap_s: float = SESSION_GAP_S) -> None:
+    def __init__(self, session_gap_s: float = SESSION_GAP_S, max_events: int = MAX_EVENTS) -> None:
         self.session_gap_s = float(session_gap_s)
+        self.max_events = int(max_events)
         self.raw_lines: deque = deque(maxlen=MAX_RAW_LINES)
         self.events: List[dict] = []
         self.requests = RouterEventLog()
@@ -88,10 +91,14 @@ class DashboardState:
         ev["ts_epoch"] = ts_epoch
         ev["seq"] = self.total_events + 1
         self.events.append(ev)
-        if len(self.events) > MAX_EVENTS:
-            self.events.pop(0)
         if event.line_no:
             self._event_by_line[event.line_no] = ev
+        if len(self.events) > self.max_events:
+            dropped = self.events.pop(0)
+            # Drop the line index too, otherwise the lookup table outlives the
+            # events it points at and keeps stale dicts alive forever.
+            if dropped.get("line_no"):
+                self._event_by_line.pop(dropped["line_no"], None)
 
         self.total_events += 1
         self.mode_counts[event.mode] += 1

@@ -20,7 +20,7 @@
   const GRAPH_PADDING = 24;
   const GRAPH_KNOWN_BOTTOM = 260;
   const MAX_DOM_LINES = 500;
-  const MAX_CLIENT_EVENTS = 500;
+  const MAX_CLIENT_EVENTS = 5000;
 
   const rawLogEl = document.getElementById("raw-log");
   const codexLogEl = document.getElementById("codex-log");
@@ -36,6 +36,22 @@
   const rawAuto = document.getElementById("raw-autoscroll");
   const codexAuto = document.getElementById("codex-autoscroll");
   const sessionStripEl = document.getElementById("session-strip");
+  const replayBarEl = document.getElementById("replay-bar");
+  const replayPill = document.getElementById("replay-pill");
+  const replayPillText = document.getElementById("replay-text");
+  const rpFirst = document.getElementById("rp-first");
+  const rpPrev = document.getElementById("rp-prev");
+  const rpPlay = document.getElementById("rp-play");
+  const rpNext = document.getElementById("rp-next");
+  const rpLast = document.getElementById("rp-last");
+  const rpSpeed = document.getElementById("rp-speed");
+  const rpRange = document.getElementById("rp-range");
+  const rpStep = document.getElementById("rp-step");
+  const rpNote = document.getElementById("rp-note");
+  const rpCurrent = document.getElementById("rp-current");
+  const rpExit = document.getElementById("rp-exit");
+  const rpExitBadge = document.getElementById("rp-exit-badge");
+  const rawPanelEl = document.querySelector(".panel-raw");
 
   // Client-side mirror of routing events: keeps deltas cheap (append, no refetch).
   let clientEvents = [];
@@ -234,8 +250,9 @@
     }).join("") + `<div class="counter"><strong>total</strong><span class="n">${state.total_events || 0}</span></div>`;
   }
 
-  function renderTimeline() {
-    const rows = clientEvents.slice(-30).reverse();
+  function renderTimeline(events) {
+    const source = events && events.length ? events : clientEvents;
+    const rows = source.slice(-30).reverse();
     timelineBodyEl.innerHTML = rows.map(ev => `
       <tr>
         <td>${esc(shortTs(ev.ts))}</td>
@@ -331,6 +348,7 @@
   function renderFull(state) {
     lastState = state;
     clientEvents = (state.events || []).slice(-MAX_CLIENT_EVENTS);
+    replay.pendingRaw = [];
     resetContainers();
     applyHeader(state);
     appendRaw(state.raw_lines || []);
@@ -343,6 +361,26 @@
 
   function renderDelta(delta) {
     lastState = Object.assign({}, lastState || {}, delta);
+    if (replay.active) {
+      // Stay frozen: accumulate history for the replay, buffer the raw stream,
+      // and surface how much has piled up behind the scrubber.
+      if (delta.events && delta.events.length) {
+        for (const ev of delta.events) {
+          const exists = replay.events.some((x) => x.seq === ev.seq);
+          if (!exists) replay.events.push(ev);
+          replay.pendingSinceReplay += 1;
+        }
+        replay.events.sort((a, b) => (a.seq || 0) - (b.seq || 0));
+        replay.total = delta.cursor ? (delta.cursor.events || replay.total) : replay.total;
+        if (rpRange.max !== "1") {
+          rpRange.max = String(replay.events.length);
+          rpStep.textContent = `KROK ${replay.index + 1}/${replay.events.length}`;
+        }
+      }
+      if (delta.raw_lines && delta.raw_lines.length) replay.pendingRaw.push(...delta.raw_lines);
+      updateExitBadge();
+      return;
+    }
     if (delta.events && delta.events.length) {
       clientEvents = clientEvents.concat(delta.events).slice(-MAX_CLIENT_EVENTS);
     }
@@ -354,6 +392,307 @@
     renderGraph(lastState);
     renderSessions(lastState);
   }
+
+  // ------------------------------------------------------------------ replay
+  // Step-by-step playback of routing decisions. The live stream keeps feeding
+  // clientEvents in the background; replay renders any prefix of a *dedicated*
+  // history list (fetched from /api/events) so it can cover the whole retained
+  // window even when the live DOM mirror has already been trimmed.
+  const REPLAY_BASE_INTERVAL_MS = 1000;
+
+  const replay = {
+    active: false,
+    playing: false,
+    speed: 1,
+    index: -1,
+    events: [],
+    total: 0,
+    pendingRaw: [],
+    pendingSinceReplay: 0,
+    timer: null,
+  };
+
+  function replayStepCount() {
+    return replay.events.length;
+  }
+
+  // Recompute the dashboard views (graph, counters, sessions) for a prefix of
+  // the history. The shape mirrors what the server's aggregates() produces so
+  // the existing renderers can be reused unchanged.
+  function derivePrefix(slice) {
+    const counts = { mode: {}, source: {}, class: {}, model: {} };
+    const sessions = [];
+    const sessionById = {};
+
+    for (const ev of slice) {
+      counts.mode[ev.mode] = (counts.mode[ev.mode] || 0) + 1;
+      if (ev.source) counts.source[ev.source] = (counts.source[ev.source] || 0) + 1;
+      const cls = ev.class || ev.request_class || "-";
+      counts.class[cls] = (counts.class[cls] || 0) + 1;
+      if (ev.model) counts.model[ev.model] = (counts.model[ev.model] || 0) + 1;
+
+      let sess = sessionById[ev.session];
+      if (!sess) {
+        sess = { id: ev.session, requests: 0, modes: {}, start_ts: "", end_ts: "" };
+        sessionById[ev.session] = sess;
+        sessions.push(sess);
+      }
+      sess.requests += 1;
+      sess.modes[ev.mode] = (sess.modes[ev.mode] || 0) + 1;
+      if (ev.ts && !sess.start_ts) sess.start_ts = ev.ts;
+      if (ev.ts) sess.end_ts = ev.ts;
+    }
+
+    // Transitions: consecutive decisions within the same session only; the
+    // first decision of a session never produces an edge (mirrors the server).
+    const matrix = {};
+    let prev = null;
+    for (const ev of slice) {
+      if (prev && prev.session === ev.session) {
+        const row = matrix[prev.mode] || (matrix[prev.mode] = {});
+        row[ev.mode] = (row[ev.mode] || 0) + 1;
+      }
+      prev = ev;
+    }
+    const edges = [];
+    for (const from of Object.keys(matrix)) {
+      for (const to of Object.keys(matrix[from])) {
+        edges.push({ from, to, count: matrix[from][to] });
+      }
+    }
+    edges.sort((a, b) => (b.count - a.count) || (a.from < b.from ? -1 : a.from > b.from ? 1 : (a.to < b.to ? -1 : a.to > b.to ? 1 : 0)));
+
+    const nodes = [];
+    const seen = new Set();
+    for (const mode of KNOWN_MODES) {
+      nodes.push({ id: mode, count: counts.mode[mode] || 0 });
+      seen.add(mode);
+    }
+    for (const mode of Object.keys(counts.mode)) {
+      if (!seen.has(mode)) nodes.push({ id: mode, count: counts.mode[mode] });
+    }
+
+    const last_event = slice.length ? slice[slice.length - 1] : null;
+    return {
+      nodes,
+      edges,
+      counts,
+      total_events: slice.length,
+      last_event,
+      sessions: sessions.map((s) => ({
+        id: s.id, requests: s.requests, modes: s.modes,
+        start_ts: s.start_ts, end_ts: s.end_ts,
+      })),
+    };
+  }
+
+  function replayCurrentSummary(ev) {
+    if (!ev) return "";
+    const ts = ev.ts ? `<span class="ts">${esc(shortTs(ev.ts))}</span>` : "";
+    const mode = `<span class="badge ${modeClass(ev.mode)}">${esc(ev.mode)}</span>`;
+    const kv = (k, v) => `<span class="kv"><span class="k">${k}</span>=${esc(v)}</span>`;
+    return ts + " " + mode + " " +
+      kv("source", ev.source || "-") + " " +
+      kv("model", (ev.model || "-").replace(/^.*\//, "")) +
+      (ev.host ? " " + kv("host", String(ev.host).replace(/^https?:\/\//, "")) : "");
+  }
+
+  function renderReplayStep(fullRebuild) {
+    const n = replayStepCount();
+    if (!n) return;
+    replay.index = Math.max(0, Math.min(n - 1, replay.index));
+    const slice = replay.events.slice(0, replay.index + 1);
+    const derived = derivePrefix(slice);
+
+    if (fullRebuild) {
+      renderCodexPrefix(replay.index);
+    } else {
+      // Advance by exactly one: append the new line and drop the highlight.
+      const ev = replay.events[replay.index];
+      appendCodex([ev]);
+      const cur = codexLogEl.querySelector(".log-line.replay-current");
+      if (cur) cur.classList.remove("replay-current");
+    }
+    const lastLine = codexLogEl.querySelector(".log-line:last-child");
+    if (lastLine) {
+      lastLine.classList.add("replay-current");
+      lastLine.scrollIntoView({ block: "nearest" });
+    }
+
+    renderCounters(derived);
+    renderTimeline(slice);
+    renderGraph(derived);
+    renderSessions(derived);
+    applyHeader(derived);
+
+    rpRange.max = String(n);
+    rpRange.value = String(replay.index + 1);
+    rpStep.textContent = `KROK ${replay.index + 1}/${n}`;
+    const trimmed = replay.total > replay.events.length;
+    rpNote.textContent = trimmed ? `zachowane ostatnie ${replay.events.length} z ${replay.total}` : "";
+    rpCurrent.innerHTML = replayCurrentSummary(replay.events[replay.index]);
+
+    rpFirst.disabled = replay.index <= 0;
+    rpPrev.disabled = replay.index <= 0;
+    rpNext.disabled = replay.index >= n - 1;
+    rpLast.disabled = replay.index >= n - 1;
+  }
+
+  function renderCodexPrefix(index) {
+    const slice = replay.events.slice(0, index + 1).slice(-MAX_DOM_LINES);
+    codexLogEl.innerHTML = slice.map(eventLineHtml).join("");
+    if (codexAuto.checked) codexLogEl.scrollTop = codexLogEl.scrollHeight;
+  }
+
+  function setReplayPill(on) {
+    replayPill.classList.toggle("replay-on", on);
+    replayPillText.textContent = on ? "REPLAY" : "REPLAY OFF";
+  }
+
+  const rpStepControls = [rpFirst, rpPrev, rpNext, rpLast, rpRange];
+
+  function setReplayControlsEnabled(enabled) {
+    for (const el of rpStepControls) el.disabled = !enabled;
+  }
+
+  function setPlaying(playing) {
+    replay.playing = playing;
+    rpPlay.classList.toggle("playing", playing);
+    rpPlay.innerHTML = playing ? "&#9646;&#9646;" : "&#9654;";
+    if (replay.timer) { clearTimeout(replay.timer); replay.timer = null; }
+    if (playing) scheduleNextReplayStep();
+  }
+
+  function scheduleNextReplayStep() {
+    const n = replayStepCount();
+    if (replay.index >= n - 1) {
+      // Reached the end of the retained history: pause, but keep the timer
+      // slot clear so new live events (which extend replay.events) can resume.
+      setPlaying(false);
+      rpStep.textContent = `KONIEC HISTORII (${n})`;
+      return;
+    }
+    const delay = REPLAY_BASE_INTERVAL_MS / replay.speed;
+    replay.timer = setTimeout(() => {
+      if (!replay.playing) return;
+      replay.index += 1;
+      renderReplayStep(false);
+      if (replay.playing) scheduleNextReplayStep();
+    }, delay);
+  }
+
+  function startReplay() {
+    if (replay.active) return;
+    fetch("/api/events", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((body) => {
+        const events = body.events || [];
+        if (!events.length) {
+          rpNote.textContent = "brak decyzji do odtworzenia";
+          return;
+        }
+        replay.active = true;
+        replay.events = events;
+        replay.total = body.total || 0;
+        replay.index = 0;
+        replay.pendingRaw = [];
+        replay.pendingSinceReplay = 0;
+        replay.speed = parseFloat(rpSpeed.value) || 1;
+        replayBarEl.classList.add("active");
+        setReplayPill(true);
+        setReplayControlsEnabled(true);
+        rawPanelEl.classList.add("frozen");
+        rpExitBadge.textContent = "";
+        renderReplayStep(true);
+        setPlaying(replay.events.length > 1);
+      })
+      .catch(() => { /* keep the live view; user can retry */ });
+  }
+
+  function stopReplay() {
+    if (!replay.active) return;
+    const bufferedRaw = replay.pendingRaw;
+    replay.active = false;
+    setPlaying(false);
+    replay.events = [];
+    replay.total = 0;
+    replay.index = -1;
+    replay.pendingRaw = [];
+    replay.pendingSinceReplay = 0;
+    replayBarEl.classList.remove("active");
+    setReplayPill(false);
+    setReplayControlsEnabled(false);
+    rawPanelEl.classList.remove("frozen");
+    rpCurrent.innerHTML = "";
+    rpStep.textContent = "brak kroków";
+    rpNote.textContent = "";
+    rpRange.max = "1";
+    rpRange.value = "1";
+    rpExitBadge.textContent = "";
+    const cur = codexLogEl.querySelector(".log-line.replay-current");
+    if (cur) cur.classList.remove("replay-current");
+    if (bufferedRaw.length) appendRaw(bufferedRaw);
+    // Resynchronise everything from the server instead of stitching partial state.
+    fetch("/api/state", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(renderFull)
+      .catch(() => {});
+  }
+
+  function toggleReplay() {
+    if (replay.active) stopReplay();
+    else startReplay();
+  }
+
+  function stepReplay(delta) {
+    if (!replay.active) return;
+    const n = replayStepCount();
+    replay.index = Math.max(0, Math.min(n - 1, replay.index + delta));
+    renderReplayStep(delta === 1);
+  }
+
+  function jumpReplay(to) {
+    if (!replay.active) return;
+    const n = replayStepCount();
+    replay.index = Math.max(0, Math.min(n - 1, to));
+    renderReplayStep(true);
+  }
+
+  function updateExitBadge() {
+    rpExitBadge.textContent = replay.pendingSinceReplay > 0 ? `+${replay.pendingSinceReplay}` : "";
+  }
+
+  rpFirst.addEventListener("click", () => jumpReplay(0));
+  rpPrev.addEventListener("click", () => stepReplay(-1));
+  rpNext.addEventListener("click", () => stepReplay(1));
+  rpLast.addEventListener("click", () => jumpReplay(replayStepCount() - 1));
+  rpPlay.addEventListener("click", () => {
+    if (!replay.active) startReplay();
+    else setPlaying(!replay.playing);
+  });
+  rpExit.addEventListener("click", stopReplay);
+  replayPill.addEventListener("click", toggleReplay);
+  rpSpeed.addEventListener("change", () => {
+    replay.speed = parseFloat(rpSpeed.value) || 1;
+    if (replay.playing) scheduleNextReplayStep();
+  });
+  rpRange.addEventListener("input", () => jumpReplay(parseInt(rpRange.value, 10) - 1));
+  setReplayControlsEnabled(false);
+
+  document.addEventListener("keydown", (e) => {
+    if (e.target.closest("input, select, textarea, button")) return;
+    if (!replay.active) {
+      if (e.key === "r" || e.key === "R") { startReplay(); e.preventDefault(); }
+      return;
+    }
+    if (e.key === "r" || e.key === "R") { stopReplay(); e.preventDefault(); }
+    if (e.key === "ArrowLeft") { stepReplay(-1); e.preventDefault(); }
+    else if (e.key === "ArrowRight") { stepReplay(1); e.preventDefault(); }
+    else if (e.key === " ") { setPlaying(!replay.playing); e.preventDefault(); }
+    else if (e.key === "Home") { jumpReplay(0); e.preventDefault(); }
+    else if (e.key === "End") { jumpReplay(replayStepCount() - 1); e.preventDefault(); }
+    else if (e.key === "Escape") { stopReplay(); }
+  });
 
   // ---------------------------------------------------------------- streaming
   function setLive(ok) {

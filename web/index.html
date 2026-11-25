@@ -14,6 +14,7 @@
       <span class="brand-sub">codex routing live view</span>
     </div>
     <div class="status-row">
+      <button type="button" class="pill pill-btn" id="replay-pill" title="Odtwarzanie historyczne krok po kroku (R)"><span class="dot"></span><span id="replay-text">REPLAY OFF</span></button>
       <div class="pill" id="live-pill"><span class="dot"></span><span id="live-text">CONNECTING</span></div>
       <div class="meta">log: <span id="log-path" class="mono">—</span></div>
       <div class="meta">events: <span id="event-count" class="mono">0</span></div>
@@ -102,6 +103,37 @@
     <span>llm-router-log-viz</span>
     <span class="muted">wizualizacja decyzji routingu z logów — nie wewnętrzny stan modelu</span>
   </footer>
+
+  <div class="replay-bar" id="replay-bar" aria-label="odtwarzanie historyczne">
+    <div class="replay-controls">
+      <button class="replay-btn" id="rp-first" title="Pierwszy krok (Home)">&#9198;</button>
+      <button class="replay-btn" id="rp-prev" title="Krok wstecz (strzałka w lewo)">&#9664;</button>
+      <button class="replay-btn replay-btn-play" id="rp-play" title="Play / pauza (Spacja)">&#9654;</button>
+      <button class="replay-btn" id="rp-next" title="Krok do przodu (strzałka w prawo)">&#9654;&#9654;</button>
+      <button class="replay-btn" id="rp-last" title="Ostatni krok (End)">&#9197;</button>
+      <label class="replay-speed">
+        <span class="muted">tempo</span>
+        <select id="rp-speed">
+          <option value="0.5">0.5&#215;</option>
+          <option value="1" selected>1&#215;</option>
+          <option value="2">2&#215;</option>
+          <option value="4">4&#215;</option>
+        </select>
+      </label>
+    </div>
+    <div class="replay-scrub">
+      <input type="range" id="rp-range" min="1" max="1" step="1" value="1"
+             title="Przewiń historię (suwak)" />
+      <div class="replay-readout" id="rp-readout">
+        <span id="rp-step" class="mono">brak kroków</span>
+        <span class="muted" id="rp-note"></span>
+      </div>
+    </div>
+    <div class="replay-current" id="rp-current" title="Bieżący krok"></div>
+    <button class="replay-btn replay-exit" id="rp-exit" title="Powrót do live (Esc)">
+      <span class="dot"></span>LIVE <span id="rp-exit-badge" class="muted"></span>
+    </button>
+  </div>
 
   <script src="/app.js"></script>
 </body>

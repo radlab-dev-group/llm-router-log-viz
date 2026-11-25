@@ -39,12 +39,10 @@
   const latencySummaryEl = document.getElementById("latency-summary");
   const latencyBodyEl = document.getElementById("latency-body");
   const latencySparkEl = document.getElementById("latency-spark");
-  const insightsEl = document.getElementById("insights-body");
 
   // Client-side mirror of routing events: keeps deltas cheap (append, no refetch).
   let clientEvents = [];
   let layout = Object.assign({}, NODE_POS);
-  let insightsOpen = new Set();
   let appliedGraphHeight = (() => {
     const parts = (graphEl.getAttribute("viewBox") || "").split(/\s+/);
     const h = parseInt(parts[3], 10);
@@ -331,37 +329,6 @@
     latencySparkEl.innerHTML = bars + (points ? `<polyline class="spark-line" points="${points}"></polyline>` : "");
   }
 
-  function renderInsights(state) {
-    const items = state.insights || [];
-    if (!items.length) {
-      insightsEl.innerHTML = `<div class="insights-empty">Brak alertów — reguły routingu bez zastrzeżeń.</div>`;
-      return;
-    }
-    insightsEl.innerHTML = items.map(item => {
-      const open = insightsOpen.has(item.id);
-      const refs = (item.refs || []).slice(0, 40);
-      const detail = open
-        ? `<div class="insight-detail">${esc(item.detail)}${refs.length ? `<div class="insight-refs">seq: ${refs.join(", ")}</div>` : ""}</div>`
-        : "";
-      return `<div class="insight sev-${item.severity} ${open ? "open" : ""}" data-id="${esc(item.id)}">
-        <div class="insight-head">
-          <span class="sev-pill sev-${item.severity}">${esc(item.severity)}</span>
-          <span class="insight-title">${esc(item.title)}</span>
-          <span class="insight-caret">${open ? "▾" : "▸"}</span>
-        </div>${detail}
-      </div>`;
-    }).join("");
-  }
-
-  insightsEl.addEventListener("click", (e) => {
-    const node = e.target.closest(".insight");
-    if (!node) return;
-    const id = node.getAttribute("data-id");
-    if (insightsOpen.has(id)) insightsOpen.delete(id);
-    else insightsOpen.add(id);
-    renderInsights(lastState);
-  });
-
   // ------------------------------------------------------------------ render
   let lastState = null;
 
@@ -385,7 +352,6 @@
     renderGraph(state);
     renderSessions(state);
     renderLatency(state);
-    renderInsights(state);
   }
 
   function renderDelta(delta) {
@@ -401,7 +367,6 @@
     renderGraph(lastState);
     renderSessions(lastState);
     renderLatency(lastState);
-    renderInsights(lastState);
   }
 
   // ---------------------------------------------------------------- streaming

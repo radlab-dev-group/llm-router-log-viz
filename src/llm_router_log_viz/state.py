@@ -4,7 +4,6 @@ from collections import Counter, deque
 from typing import Dict, List, Optional
 
 from .events import RequestRecord, RouterEventLog, parse_ts_epoch, percentile
-from .insights import lint
 from .parser import KNOWN_MODES, RoutingEvent
 
 MAX_RAW_LINES = 400
@@ -15,10 +14,10 @@ BUCKET_S = 30
 
 
 class DashboardState:
-    """Aggregates routing events, correlated requests, sessions, metrics and lint.
+    """Aggregates routing events, correlated requests, sessions and metrics.
 
     ``snapshot()`` keeps every key the v0 dashboard consumed and adds
-    ``requests`` / ``sessions`` / ``metrics`` / ``insights``.
+    ``requests`` / ``sessions`` / ``metrics``.
     """
 
     def __init__(self, session_gap_s: float = SESSION_GAP_S) -> None:
@@ -241,11 +240,8 @@ class DashboardState:
             for s in self.sessions
         ]
 
-    def insights(self) -> List[dict]:
-        return lint([dict(ev) for ev in self.events], [r.to_dict() for r in self.requests.requests])
-
     def aggregates(self) -> dict:
-        """Derived views recomputed on demand: graph, counters, metrics, lint."""
+        """Derived views recomputed on demand: graph, counters and metrics."""
         return {
             "nodes": self._nodes(),
             "edges": self._edges(),
@@ -259,7 +255,6 @@ class DashboardState:
             "last_event": self.last_event,
             "sessions": self._sessions_view(),
             "metrics": self.metrics(),
-            "insights": self.insights(),
         }
 
     def snapshot(self) -> dict:

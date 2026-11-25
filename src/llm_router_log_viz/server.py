@@ -136,10 +136,6 @@ class AppContext:
         with self.lock:
             return self.state.metrics()
 
-    def insights(self):
-        with self.lock:
-            return self.state.insights()
-
     # ------------------------------------------------------------- lifecycle
     def start(self) -> None:
         self.watcher = LogWatcher(
@@ -199,10 +195,6 @@ def create_app(
     @app.get("/api/metrics")
     async def metrics():
         return ctx.metrics()
-
-    @app.get("/api/insights")
-    async def insights():
-        return {"insights": ctx.insights()}
 
     @app.get("/api/stream")
     async def stream(request: Request):

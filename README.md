@@ -8,10 +8,8 @@ Pokazuje w jednym oknie:
 - **PHASE TRANSITION DIAGRAM** – graf przejść między kolejnymi decyzjami routingu,
 - **TIMELINE / COUNTERS** – ostatnie zdarzenia i agregaty,
 - **SESSIONS** – pasek sesji: przerwa w ruchu dłuższa niż `--session-gap` otwiera nową sesję,
-- **LATENCY / REQUESTS** – korelacja `POST` → decyzja → `Selected provider` → `Response …duration_ms`
-  (avg / p50 / p95 per mode i per provider, errors, sparkline czasu),
-- **ROUTING INSIGHTS** – reguły jakości decyzji routingu (niska pewność, flapping, `git_review`
-  bez testu, request pomocniczy na dużym modelu, spike `memory=miss`, luki w logu).
+- **LATENCY / REQUESTS** (na całą szerokość) – korelacja `POST` → decyzja → `Selected provider`
+  → `Response …duration_ms` (avg / p50 / p95 per mode i per provider, errors, sparkline czasu).
 
 > Uwaga: dashboard wizualizuje **decyzje routingu z logów**, nie wewnętrzny „stan myślenia” modelu.
 
@@ -72,9 +70,8 @@ nie tworzy krawędzi z ostatniej decyzji sesji poprzedniej.
 
 | Endpoint | Opis |
 | --- | --- |
-| `GET /api/state` | Pełny snapshot (zdarzenia, surowe linie, requesty, sesje, metryki, insights, kursor). |
+| `GET /api/state` | Pełny snapshot (zdarzenia, surowe linie, requesty, sesje, metryki, kursor). |
 | `GET /api/metrics` | Same agregaty latencji/liczników. |
-| `GET /api/insights` | Wyniki reguł routing-lint. |
 | `GET /api/stream` | SSE: najpierw event `full`, potem `delta` z przyrostem linii i przeliczonymi agregatami. |
 
 Frontend używa `EventSource` i dopisuje tylko nowe linie (bez pełnego renderu co sekundę);
@@ -92,7 +89,6 @@ llm-router-log-viz/
     parser.py      # parsowanie linii Codex routing
     events.py      # korelacja POST/decyzja/provider/Response + percentyle
     state.py       # sesje, liczniki, przejścia per sesja, metryki
-    insights.py    # reguły routing-lint
     watcher.py     # tail/follow pliku logu
     server.py      # FastAPI + API + SSE + serwowanie frontendu
   web/
@@ -106,7 +102,6 @@ llm-router-log-viz/
     test_events.py
     test_sessions.py
     test_metrics.py
-    test_insights.py
     test_server_api.py
   scripts/
     demo_commands.md

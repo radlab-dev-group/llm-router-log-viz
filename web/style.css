@@ -223,6 +223,7 @@ header, main, footer { position: relative; z-index: 1; }
 }
 
 /* ------------------------------------------------------------------ latency */
+.panel-latency { grid-column: 1 / -1; }
 .latency-body { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
 .latency-summary { display: flex; flex-wrap: wrap; gap: 8px; }
 .lstat {
@@ -248,31 +249,6 @@ header, main, footer { position: relative; z-index: 1; }
 .latency-table td { padding: 4px 8px; border-bottom: 1px solid var(--line-soft); color: var(--fg-dim); }
 .latency-table tr.lat-mode td { color: var(--fg); }
 .provider-tag { color: var(--purple); }
-
-/* ----------------------------------------------------------------- insights */
-.insights-body { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
-.insights-empty { color: var(--fg-faint); font-family: var(--mono); font-size: 12px; padding: 6px 2px; }
-.insight {
-  border: 1px solid var(--line); border-left-width: 3px; border-radius: 6px;
-  background: var(--panel-2); padding: 8px 10px; cursor: pointer;
-}
-.insight:hover { background: var(--panel-3); }
-.insight-head { display: flex; align-items: center; gap: 8px; }
-.insight-title { font-family: var(--mono); font-size: 12px; color: var(--fg); }
-.insight-caret { margin-left: auto; color: var(--fg-faint); }
-.insight-detail { margin-top: 6px; font-size: 12px; color: var(--fg-dim); }
-.insight-refs { margin-top: 4px; font-family: var(--mono); font-size: 11px; color: var(--fg-faint); }
-.insight.sev-critical { border-left-color: var(--red); }
-.insight.sev-warning { border-left-color: var(--amber); }
-.insight.sev-info { border-left-color: var(--blue); }
-
-.sev-pill {
-  font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.05em;
-  padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--fg-dim);
-}
-.sev-pill.sev-critical { color: var(--red); border-color: var(--red-border); background: var(--red-bg); }
-.sev-pill.sev-warning { color: var(--amber); border-color: var(--amber-border); background: var(--amber-bg); }
-.sev-pill.sev-info { color: var(--blue); border-color: var(--blue-border); background: var(--blue-bg); }
 
 @media (max-width: 1100px) {
   .grid { grid-template-columns: 1fr; grid-template-rows: auto; }

@@ -33,7 +33,7 @@ def _wait_for(tmp_path=None, client=None, timeout: float = 3.0) -> dict:
     raise AssertionError("state did not populate in time")
 
 
-def test_state_metrics_and_insights_endpoints(tmp_path):
+def test_state_and_metrics_endpoints(tmp_path):
     text = "\n".join([POST, ROUTING, PROVIDER, RESPONSE]) + "\n"
     with _client(tmp_path, text) as client:
         assert client.get("/api/health").json() == {"status": "ok"}
@@ -41,14 +41,10 @@ def test_state_metrics_and_insights_endpoints(tmp_path):
         assert state["metrics"]["completed_requests"] == 1
         assert state["metrics"]["latency_by_mode"]["plan"]["p50_ms"] == 2666.0
         assert len(state["requests"]) == 1
-        assert isinstance(state["insights"], list)
         assert state["cursor"]["events"] == 1
 
         metrics = client.get("/api/metrics").json()
         assert metrics["total_requests"] == 1
-
-        insights = client.get("/api/insights").json()
-        assert "insights" in insights
 
 
 def test_index_and_static_are_served(tmp_path):

@@ -156,15 +156,69 @@ header, main, footer { position: relative; z-index: 1; }
 
 .graph-wrap { flex: 1; min-height: 0; overflow: hidden; padding: 8px; display: flex; }
 #phase-graph { flex: 1 1 auto; width: 100%; height: 100%; min-height: 0; display: block; }
-.graph-node rect { fill: #0f1720; stroke: #263545; stroke-width: 1.2; }
+.graph-node rect {
+  fill: #0d131a;
+  stroke: #223040;
+  stroke-width: 1.2;
+  transition: stroke 0.15s ease, fill 0.15s ease, filter 0.15s ease;
+}
 .graph-node text { font-family: var(--mono); font-size: 13px; fill: #dce8f3; font-weight: 600; }
 .graph-node .count { font-size: 11px; fill: #8fa1b3; font-weight: 500; }
-.graph-node.active rect { stroke: var(--mint); fill: rgba(0,229,155,0.08); filter: drop-shadow(0 0 8px rgba(0,229,155,0.25)); }
-.graph-node.active text { fill: #ffffff; }
+
+/* Subtle mode-specific border accents */
+.graph-node.mode-plan rect { stroke: rgba(90, 169, 255, 0.45); }
+.graph-node.mode-implement rect { stroke: rgba(0, 229, 155, 0.45); }
+.graph-node.mode-test rect { stroke: rgba(255, 180, 74, 0.45); }
+.graph-node.mode-review rect { stroke: rgba(199, 146, 234, 0.45); }
+.graph-node.mode-debug rect { stroke: rgba(255, 111, 111, 0.45); }
+.graph-node.mode-git_review rect { stroke: rgba(127, 211, 255, 0.45); }
+.graph-node.mode-aux_title rect { stroke: rgba(198, 211, 223, 0.22); }
+.graph-node.mode-compaction rect { stroke: rgba(198, 211, 223, 0.22); }
+
+/* Mode-specific title highlights */
+.graph-node.mode-plan text.node-title { fill: #8cc4ff; }
+.graph-node.mode-implement text.node-title { fill: #52f7be; }
+.graph-node.mode-test text.node-title { fill: #ffd182; }
+.graph-node.mode-review text.node-title { fill: #dab6f5; }
+.graph-node.mode-debug text.node-title { fill: #ff9e9e; }
+.graph-node.mode-git_review text.node-title { fill: #aae2ff; }
+.graph-node.mode-aux_title text.node-title { fill: #b8c8d8; }
+.graph-node.mode-compaction text.node-title { fill: #b8c8d8; }
+
+/* Inactive / empty modes */
+.graph-node.empty { opacity: 0.42; }
+.graph-node.empty:hover { opacity: 0.85; }
+
+/* Active node state */
+.graph-node.active { opacity: 1 !important; }
+.graph-node.active rect {
+  stroke: var(--mint) !important;
+  stroke-width: 2px !important;
+  fill: rgba(0, 229, 155, 0.12) !important;
+  filter: drop-shadow(0 0 10px rgba(0, 229, 155, 0.35));
+}
+.graph-node.active text { fill: #ffffff !important; }
+
+/* Edges and labels */
 .graph-edge { fill: none; stroke: #35506a; stroke-width: 1.6; opacity: 0.85; }
 .graph-edge.active { stroke: var(--mint); stroke-width: 2.4; opacity: 1; filter: drop-shadow(0 0 5px rgba(0,229,155,0.35)); }
-.edge-label { font-family: var(--mono); font-size: 11px; fill: #9fb2c5; }
-.edge-label.active { fill: var(--mint); font-weight: 700; }
+
+.edge-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  fill: #9fb2c5;
+  paint-order: stroke fill;
+  stroke: var(--panel);
+  stroke-width: 6px;
+  stroke-linejoin: round;
+  user-select: none;
+}
+.edge-label.active {
+  fill: var(--mint);
+  font-weight: 700;
+  stroke: var(--panel);
+  stroke-width: 6px;
+}
 
 .timeline-body { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
 .counters { display: flex; flex-wrap: wrap; gap: 8px; }

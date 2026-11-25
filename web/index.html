@@ -18,8 +18,14 @@
       <div class="meta">log: <span id="log-path" class="mono">—</span></div>
       <div class="meta">events: <span id="event-count" class="mono">0</span></div>
       <div class="meta">last: <span id="last-mode" class="mono">—</span></div>
+      <div class="meta">req: <span id="req-count" class="mono">0</span></div>
     </div>
   </header>
+
+  <section class="session-strip" id="session-strip" aria-label="sesje">
+    <span class="session-strip-label">SESSIONS</span>
+    <span class="session-strip-empty muted">brak danych</span>
+  </section>
 
   <main class="grid">
     <section class="panel panel-raw">
@@ -88,6 +94,43 @@
           </table>
         </div>
       </div>
+    </section>
+    <section class="panel panel-latency">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">LATENCY / REQUESTS</div>
+          <div class="panel-sub">korelacja POST → decyzja → provider → Response</div>
+        </div>
+        <div class="panel-actions">
+          <span class="legend-item"><span class="sw sw-line"></span>p50</span>
+          <span class="legend-item"><span class="sw sw-mint"></span>p95</span>
+        </div>
+      </div>
+      <div class="latency-body">
+        <div class="latency-summary" id="latency-summary"></div>
+        <div class="spark-wrap"><svg id="latency-spark" viewBox="0 0 460 60" preserveAspectRatio="none"></svg></div>
+        <table class="latency-table">
+          <thead>
+            <tr><th>mode / provider</th><th>n</th><th>avg</th><th>p50</th><th>p95</th></tr>
+          </thead>
+          <tbody id="latency-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel panel-insights">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">ROUTING INSIGHTS</div>
+          <div class="panel-sub">reguły jakości decyzji routingu</div>
+        </div>
+        <div class="panel-actions">
+          <span class="legend-item"><span class="sev-pill sev-critical">critical</span></span>
+          <span class="legend-item"><span class="sev-pill sev-warning">warning</span></span>
+          <span class="legend-item"><span class="sev-pill sev-info">info</span></span>
+        </div>
+      </div>
+      <div class="insights-body" id="insights-body"></div>
     </section>
   </main>
 

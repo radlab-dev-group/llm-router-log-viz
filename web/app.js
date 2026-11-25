@@ -12,6 +12,11 @@
   };
   const NODE_W = 150;
   const NODE_H = 56;
+  const EXTRA_ROW_Y = 400;
+  const EXTRA_PER_ROW = 4;
+  const GRAPH_VIEWBOX = "0 0 920 470";
+  const MAX_DOM_LINES = 500;
+  const MAX_CLIENT_EVENTS = 500;
 
   const rawLogEl = document.getElementById("raw-log");
   const codexLogEl = document.getElementById("codex-log");
@@ -23,11 +28,19 @@
   const logPathEl = document.getElementById("log-path");
   const eventCountEl = document.getElementById("event-count");
   const lastModeEl = document.getElementById("last-mode");
+  const reqCountEl = document.getElementById("req-count");
   const rawAuto = document.getElementById("raw-autoscroll");
   const codexAuto = document.getElementById("codex-autoscroll");
+  const sessionStripEl = document.getElementById("session-strip");
+  const latencySummaryEl = document.getElementById("latency-summary");
+  const latencyBodyEl = document.getElementById("latency-body");
+  const latencySparkEl = document.getElementById("latency-spark");
+  const insightsEl = document.getElementById("insights-body");
 
-  let lastRawCount = -1;
-  let lastEventCount = -1;
+  // Client-side mirror of routing events: keeps deltas cheap (append, no refetch).
+  let clientEvents = [];
+  let layout = Object.assign({}, NODE_POS);
+  let insightsOpen = new Set();
 
   function esc(s) {
     return String(s)
@@ -43,62 +56,35 @@
     return `mode-${m}`;
   }
 
-  function formatEventLine(ev) {
-    const ts = ev.ts ? `<span class="ts">${esc(ev.ts)}</span> ` : "";
-    const mode = `<span class="badge ${modeClass(ev.mode)}">${esc(ev.mode)}</span>`;
-    const rest = [
-      `<span class="kv"><span class="k">source</span>=<span class="v src">${esc(ev.source)}</span></span>`,
-      `<span class="kv"><span class="k">class</span>=<span class="v cls">${esc(ev.class || ev.request_class || "-")}</span></span>`,
-      `<span class="kv"><span class="k">model</span>=<span class="v model">${esc(ev.model)}</span></span>`,
-      `<span class="kv"><span class="k">sim</span>=<span class="v">${ev.similarity == null ? "-" : Number(ev.similarity).toFixed(3)}</span></span>`,
-    ].join(" ");
-    return `<div class="log-line codex">${ts}${mode} ${rest}</div>`;
+  function fmtMs(ms) {
+    if (ms == null) return "—";
+    if (ms >= 1000) return `${(ms / 1000).toFixed(2)}s`;
+    return `${Math.round(ms)}ms`;
   }
 
-  function renderRaw(rawLines) {
-    if (rawLines.length === lastRawCount) return;
-    lastRawCount = rawLines.length;
-    rawLogEl.innerHTML = rawLines.map(line => {
-      const isCodex = line.includes("Codex routing:");
-      const cls = isCodex ? "log-line codex" : "log-line";
-      return `<div class="${cls}">${esc(line)}</div>`;
-    }).join("");
-    if (rawAuto.checked) rawLogEl.scrollTop = rawLogEl.scrollHeight;
+  function shortTs(ts) {
+    if (!ts) return "—";
+    const idx = ts.indexOf(" ");
+    return idx > 0 ? ts.slice(idx + 1) : ts;
   }
 
-  function renderCodex(events) {
-    if (events.length === lastEventCount) return;
-    lastEventCount = events.length;
-    codexLogEl.innerHTML = events.map(formatEventLine).join("");
-    if (codexAuto.checked) codexLogEl.scrollTop = codexLogEl.scrollHeight;
-  }
-
-  function renderCounters(state) {
-    const counts = (state.counts && state.counts.mode) || {};
-    const order = [...KNOWN_MODES, ...Object.keys(counts).filter(k => !KNOWN_MODES.includes(k))];
-    countersEl.innerHTML = order.map(mode => {
-      const n = counts[mode] || 0;
-      return `<div class="counter"><strong>${esc(mode)}</strong><span class="n">${n}</span></div>`;
-    }).join("") + `<div class="counter"><strong>total</strong><span class="n">${state.total_events || 0}</span></div>`;
-  }
-
-  function renderTimeline(state) {
-    const rows = (state.timeline || []).slice(0, 30);
-    timelineBodyEl.innerHTML = rows.map(ev => `
-      <tr>
-        <td>${esc(ev.ts || "—")}</td>
-        <td><span class="badge ${modeClass(ev.mode)}">${esc(ev.mode)}</span></td>
-        <td>${esc(ev.source || "-")}</td>
-        <td>${esc(ev.class || ev.request_class || "-")}</td>
-        <td class="model-cell" title="${esc(ev.model || "-")}">${esc(ev.model || "-")}</td>
-      </tr>
-    `).join("");
+  // ------------------------------------------------------------------ layout
+  function computeLayout(nodes) {
+    const extras = (nodes || [])
+      .map(n => n.id)
+      .filter(id => !layout[id])
+      .sort();
+    extras.forEach((id, i) => {
+      const row = Math.floor(i / EXTRA_PER_ROW);
+      const col = i % EXTRA_PER_ROW;
+      layout[id] = { x: 110 + col * 220, y: EXTRA_ROW_Y + row * 120 };
+    });
+    return layout;
   }
 
   function nodeCenter(mode) {
-    const p = NODE_POS[mode];
-    if (!p) return { x: 460, y: 170 };
-    return { x: p.x, y: p.y };
+    const p = layout[mode];
+    return p ? { x: p.x, y: p.y } : { x: 460, y: 170 };
   }
 
   function edgePath(from, to) {
@@ -119,7 +105,6 @@
     const cx = mx + nx * bend;
     const cy = my + ny * bend;
 
-    // shorten endpoints to rectangle edge-ish
     const trim = 75;
     const ux = dx / len, uy = dy / len;
     const sx = a.x + ux * trim;
@@ -144,12 +129,84 @@
     return { x: mx + nx * (bend * 0.65), y: my + ny * (bend * 0.65) - 2 };
   }
 
+  // ------------------------------------------------------------------- lines
+  function rawLineHtml(line) {
+    const isCodex = line.includes("Codex routing:");
+    return `<div class="log-line ${isCodex ? "codex" : ""}">${esc(line)}</div>`;
+  }
+
+  function eventLineHtml(ev) {
+    const ts = ev.ts ? `<span class="ts">${esc(ev.ts)}</span> ` : "";
+    const mode = `<span class="badge ${modeClass(ev.mode)}">${esc(ev.mode)}</span>`;
+    const session = ev.session ? `<span class="session-tag">S${esc(ev.session)}</span> ` : "";
+    const latency = ev.duration_ms != null
+      ? ` <span class="kv"><span class="k">dur</span>=<span class="v">${fmtMs(ev.duration_ms)}</span></span>`
+      : "";
+    const rest = [
+      `<span class="kv"><span class="k">source</span>=<span class="v src">${esc(ev.source)}</span></span>`,
+      `<span class="kv"><span class="k">class</span>=<span class="v cls">${esc(ev.class || ev.request_class || "-")}</span></span>`,
+      `<span class="kv"><span class="k">model</span>=<span class="v model">${esc(ev.model)}</span></span>`,
+      `<span class="kv"><span class="k">sim</span>=<span class="v">${ev.similarity == null ? "-" : Number(ev.similarity).toFixed(3)}</span></span>`,
+    ].join(" ");
+    return `<div class="log-line codex">${session}${ts}${mode} ${rest}${latency}</div>`;
+  }
+
+  function trimDom(el) {
+    while (el.childElementCount > MAX_DOM_LINES) el.removeChild(el.firstElementChild);
+  }
+
+  function appendRaw(lines) {
+    if (!lines.length) return;
+    rawLogEl.insertAdjacentHTML("beforeend", lines.map(rawLineHtml).join(""));
+    trimDom(rawLogEl);
+    if (rawAuto.checked) rawLogEl.scrollTop = rawLogEl.scrollHeight;
+  }
+
+  function appendCodex(events) {
+    if (!events.length) return;
+    codexLogEl.insertAdjacentHTML("beforeend", events.map(eventLineHtml).join(""));
+    trimDom(codexLogEl);
+    if (codexAuto.checked) codexLogEl.scrollTop = codexLogEl.scrollHeight;
+  }
+
+  function resetContainers() {
+    rawLogEl.innerHTML = "";
+    codexLogEl.innerHTML = "";
+  }
+
+  // --------------------------------------------------------------- renderers
+  function renderCounters(state) {
+    const counts = (state.counts && state.counts.mode) || {};
+    const order = [...KNOWN_MODES, ...Object.keys(counts).filter(k => !KNOWN_MODES.includes(k))];
+    countersEl.innerHTML = order.map(mode => {
+      const n = counts[mode] || 0;
+      return `<div class="counter"><strong>${esc(mode)}</strong><span class="n">${n}</span></div>`;
+    }).join("") + `<div class="counter"><strong>total</strong><span class="n">${state.total_events || 0}</span></div>`;
+  }
+
+  function renderTimeline() {
+    const rows = clientEvents.slice(-30).reverse();
+    timelineBodyEl.innerHTML = rows.map(ev => `
+      <tr>
+        <td>${esc(shortTs(ev.ts))}</td>
+        <td><span class="badge ${modeClass(ev.mode)}">${esc(ev.mode)}</span></td>
+        <td>${esc(ev.source || "-")}</td>
+        <td>${esc(ev.class || ev.request_class || "-")}</td>
+        <td class="model-cell" title="${esc(ev.model || "-")}">${esc(ev.model || "-")}</td>
+      </tr>
+    `).join("");
+  }
+
   function renderGraph(state) {
     const nodes = state.nodes || [];
     const edges = state.edges || [];
+    computeLayout(nodes);
+    graphEl.setAttribute("viewBox", GRAPH_VIEWBOX);
+
     const last = state.last_event;
     const lastMode = last ? last.mode : null;
-    const prevMode = state.events && state.events.length >= 2 ? state.events[state.events.length - 2].mode : null;
+    const prevMode = clientEvents.length >= 2 ? clientEvents[clientEvents.length - 2].mode : null;
+    const maxCount = edges.length ? edges[0].count : 1;
 
     let svg = `
       <defs>
@@ -164,14 +221,15 @@
 
     for (const e of edges) {
       const active = prevMode && lastMode && e.from === prevMode && e.to === lastMode;
+      const width = (0.9 + 2.6 * (e.count / maxCount)).toFixed(2);
       const path = edgePath(e.from, e.to);
       const lp = edgeLabelPos(e.from, e.to);
-      svg += `<path class="graph-edge ${active ? "active" : ""}" d="${path}" marker-end="url(#${active ? "arrow-active" : "arrow"})"></path>`;
+      svg += `<path class="graph-edge ${active ? "active" : ""}" style="stroke-width:${width}" d="${path}" marker-end="url(#${active ? "arrow-active" : "arrow"})"></path>`;
       svg += `<text class="edge-label ${active ? "active" : ""}" x="${lp.x}" y="${lp.y}" text-anchor="middle">${e.count}</text>`;
     }
 
     for (const n of nodes) {
-      const pos = NODE_POS[n.id] || { x: 460, y: 170 };
+      const pos = layout[n.id] || { x: 460, y: 170 };
       const active = lastMode === n.id;
       const x = pos.x - NODE_W / 2;
       const y = pos.y - NODE_H / 2;
@@ -187,32 +245,170 @@
     graphEl.innerHTML = svg;
   }
 
-  function render(state) {
-    logPathEl.textContent = state.log_path || "—";
-    eventCountEl.textContent = String(state.total_events || 0);
-    lastModeEl.textContent = state.last_event ? state.last_event.mode : "—";
-
-    renderRaw(state.raw_lines || []);
-    renderCodex(state.events || []);
-    renderCounters(state);
-    renderTimeline(state);
-    renderGraph(state);
+  function renderSessions(state) {
+    const sessions = state.sessions || [];
+    if (!sessions.length) return;
+    const activeId = sessions.length ? sessions[sessions.length - 1].id : null;
+    const chips = sessions.slice(-12).map(s => {
+      const modes = Object.entries(s.modes || {})
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([m, n]) => `${m}:${n}`)
+        .join(" ");
+      return `<button class="session-chip ${s.id === activeId ? "active" : ""}" title="${esc(s.start_ts)} → ${esc(s.end_ts)}">
+        <span class="sid">S${s.id}</span>
+        <span class="sreq">${s.requests} req</span>
+        <span class="smodes">${esc(modes)}</span>
+      </button>`;
+    });
+    sessionStripEl.innerHTML = `<span class="session-strip-label">SESSIONS</span>${chips.join("")}` +
+      (sessions.length > 12 ? `<span class="muted">+${sessions.length - 12}</span>` : "");
   }
 
-  async function poll() {
+  function renderLatency(state) {
+    const m = state.metrics || {};
+    const lat = m.latency || {};
+    latencySummaryEl.innerHTML = `
+      <div class="lstat"><strong>requests</strong><span class="n">${m.total_requests || 0}</span></div>
+      <div class="lstat"><strong>closed</strong><span class="n">${m.completed_requests || 0}</span></div>
+      <div class="lstat"><strong>open</strong><span class="n">${m.open_requests || 0}</span></div>
+      <div class="lstat ${m.errors ? "bad" : ""}"><strong>errors</strong><span class="n">${m.errors || 0}</span></div>
+      <div class="lstat"><strong>p50</strong><span class="n">${fmtMs(lat.p50_ms)}</span></div>
+      <div class="lstat"><strong>p95</strong><span class="n">${fmtMs(lat.p95_ms)}</span></div>`;
+
+    const rows = [];
+    for (const [mode, s] of Object.entries(m.latency_by_mode || {})) {
+      rows.push(`<tr class="lat-mode"><td><span class="badge ${modeClass(mode)}">${esc(mode)}</span></td>
+        <td>${s.count}</td><td>${fmtMs(s.avg_ms)}</td><td>${fmtMs(s.p50_ms)}</td><td>${fmtMs(s.p95_ms)}</td></tr>`);
+    }
+    for (const [provider, s] of Object.entries(m.latency_by_provider || {})) {
+      rows.push(`<tr class="lat-provider"><td><span class="provider-tag">${esc(provider)}</span></td>
+        <td>${s.count}</td><td>${fmtMs(s.avg_ms)}</td><td>${fmtMs(s.p50_ms)}</td><td>${fmtMs(s.p95_ms)}</td></tr>`);
+    }
+    latencyBodyEl.innerHTML = rows.join("") || `<tr><td colspan="5" class="muted">brak domkniętych requestów</td></tr>`;
+    renderSpark(m.time_series || []);
+  }
+
+  function renderSpark(series) {
+    const w = 460, h = 60;
+    if (series.length < 2) {
+      latencySparkEl.innerHTML = `<text x="4" y="14" class="spark-empty">rozkład czasu odpowiedzi pojawi się po ≥2 kubełkach</text>`;
+      return;
+    }
+    const maxReq = Math.max(...series.map(s => s.requests), 1);
+    const step = w / Math.max(series.length - 1, 1);
+    const bars = series.map((s, i) => {
+      const bh = (s.requests / maxReq) * (h - 6);
+      return `<rect class="spark-bar" x="${(i * step).toFixed(1)}" y="${(h - bh).toFixed(1)}" width="${Math.max(step - 1.5, 1).toFixed(1)}" height="${bh.toFixed(1)}"></rect>`;
+    }).join("");
+    const points = series
+      .filter(s => s.avg_ms != null)
+      .map((s, i) => `${((i + 0.5) * step).toFixed(1)},${(h - Math.min(s.avg_ms / 20000, 1) * (h - 6)).toFixed(1)}`)
+      .join(" ");
+    latencySparkEl.innerHTML = bars + (points ? `<polyline class="spark-line" points="${points}"></polyline>` : "");
+  }
+
+  function renderInsights(state) {
+    const items = state.insights || [];
+    if (!items.length) {
+      insightsEl.innerHTML = `<div class="insights-empty">Brak alertów — reguły routingu bez zastrzeżeń.</div>`;
+      return;
+    }
+    insightsEl.innerHTML = items.map(item => {
+      const open = insightsOpen.has(item.id);
+      const refs = (item.refs || []).slice(0, 40);
+      const detail = open
+        ? `<div class="insight-detail">${esc(item.detail)}${refs.length ? `<div class="insight-refs">seq: ${refs.join(", ")}</div>` : ""}</div>`
+        : "";
+      return `<div class="insight sev-${item.severity} ${open ? "open" : ""}" data-id="${esc(item.id)}">
+        <div class="insight-head">
+          <span class="sev-pill sev-${item.severity}">${esc(item.severity)}</span>
+          <span class="insight-title">${esc(item.title)}</span>
+          <span class="insight-caret">${open ? "▾" : "▸"}</span>
+        </div>${detail}
+      </div>`;
+    }).join("");
+  }
+
+  insightsEl.addEventListener("click", (e) => {
+    const node = e.target.closest(".insight");
+    if (!node) return;
+    const id = node.getAttribute("data-id");
+    if (insightsOpen.has(id)) insightsOpen.delete(id);
+    else insightsOpen.add(id);
+    renderInsights(lastState);
+  });
+
+  // ------------------------------------------------------------------ render
+  let lastState = null;
+
+  function applyHeader(state) {
+    logPathEl.textContent = state.log_path || logPathEl.textContent || "—";
+    eventCountEl.textContent = String(state.total_events || 0);
+    lastModeEl.textContent = state.last_event ? state.last_event.mode : "—";
+    const reqs = state.metrics ? state.metrics.total_requests : (state.requests || []).length;
+    reqCountEl.textContent = String(reqs || 0);
+  }
+
+  function renderFull(state) {
+    lastState = state;
+    clientEvents = (state.events || []).slice(-MAX_CLIENT_EVENTS);
+    resetContainers();
+    applyHeader(state);
+    appendRaw(state.raw_lines || []);
+    appendCodex(clientEvents);
+    renderCounters(state);
+    renderTimeline();
+    renderGraph(state);
+    renderSessions(state);
+    renderLatency(state);
+    renderInsights(state);
+  }
+
+  function renderDelta(delta) {
+    lastState = Object.assign({}, lastState || {}, delta);
+    if (delta.events && delta.events.length) {
+      clientEvents = clientEvents.concat(delta.events).slice(-MAX_CLIENT_EVENTS);
+    }
+    applyHeader(lastState);
+    appendRaw(delta.raw_lines || []);
+    appendCodex(delta.events || []);
+    renderCounters(lastState);
+    renderTimeline();
+    renderGraph(lastState);
+    renderSessions(lastState);
+    renderLatency(lastState);
+    renderInsights(lastState);
+  }
+
+  // ---------------------------------------------------------------- streaming
+  function setLive(ok) {
+    livePill.classList.toggle("offline", !ok);
+    liveText.textContent = ok ? "LIVE" : "OFFLINE";
+  }
+
+  function connect() {
+    if (typeof EventSource === "undefined") {
+      legacyPoll();
+      return;
+    }
+    const source = new EventSource("/api/stream");
+    source.addEventListener("full", (e) => { setLive(true); renderFull(JSON.parse(e.data)); });
+    source.addEventListener("delta", (e) => { setLive(true); renderDelta(JSON.parse(e.data)); });
+    source.onerror = () => setLive(false);
+  }
+
+  async function legacyPoll() {
     try {
       const res = await fetch("/api/state", { cache: "no-store" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const state = await res.json();
-      livePill.classList.remove("offline");
-      liveText.textContent = "LIVE";
-      render(state);
-    } catch (e) {
-      livePill.classList.add("offline");
-      liveText.textContent = "OFFLINE";
+      setLive(true);
+      renderFull(await res.json());
+    } catch (err) {
+      setLive(false);
     }
+    setTimeout(legacyPoll, 1000);
   }
 
-  poll();
-  setInterval(poll, 1000);
+  connect();
 })();

@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from llm_router_log_viz.server import AppContext, create_app, format_sse
+from llm_router_log_viz.state import MAX_EVENTS
 
 ROUTING = (
     "2026-11-26 09:41:10,244 INFO [llm_router_plugins.routing.codex] Codex routing: "
@@ -114,3 +115,59 @@ def test_watcher_stops_itself_when_not_following(tmp_path):
     assert not ctx.watcher._thread.is_alive()
     assert ctx.state.total_events == 1
     ctx.stop()
+
+
+# ---------------------------------------------------------------------- replay
+ROUTING_IMPL = (
+    "2026-11-26 09:41:15,102 INFO [llm_router_plugins.routing.codex] Codex routing: "
+    "mode=implement source=phase model=qwen/Qwen3.8-Flash-Next similarity=0.97 class=main "
+    "reason=phase_transition evidence=plan_done memory=miss semantic=-"
+)
+BACKEND = (
+    "2026-11-26 09:41:15,120 INFO [llm_router_api.endpoints] Request model "
+    "qwen/Qwen3.8-Flash-Next with config id: qwen3.8:27b-UD-66:7000 [llama.cpp: http://192.168.100.66:7000]"
+)
+UPSTREAM = (
+    "2026-11-26 09:41:17,660 DEBUG urllib3.connectionpool: "
+    "http://192.168.100.66:7000 \"POST /v1/responses HTTP/1.1\" 200 None"
+)
+
+
+def _replay_log() -> str:
+    return "\n".join(
+        [POST, ROUTING, PROVIDER, BACKEND, UPSTREAM, ROUTING_IMPL, UPSTREAM]
+    ) + "\n"
+
+
+def _wait_events(client, count: int, timeout: float = 3.0) -> dict:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        body = client.get("/api/events").json()
+        if body["total"] >= count:
+            return body
+        time.sleep(0.05)
+    raise AssertionError("events did not populate in time")
+
+
+def test_events_endpoint_returns_enriched_history(tmp_path):
+    log = tmp_path / "router.log"
+    log.write_text(_replay_log(), encoding="utf-8")
+    app = create_app(str(log), follow=False, read_from_start=True, poll_interval=0.05)
+    with TestClient(app) as client:
+        body = _wait_events(client, 2)
+
+        assert body["total"] == 2
+        assert body["retained"] == 2
+        assert body["first_seq"] == 1
+        assert body["max_events"] == MAX_EVENTS
+        assert [ev["seq"] for ev in body["events"]] == [1, 2]
+        assert [ev["mode"] for ev in body["events"]] == ["plan", "implement"]
+        first = body["events"][0]
+        assert first["host"] == "http://192.168.100.66:7000"
+        assert first["status"] == 200
+        assert "session" in first and "ts_epoch" in first
+
+        # Paging: the replay client walks forward by seq without refetching.
+        assert [ev["seq"] for ev in client.get("/api/events", params={"limit": 1}).json()["events"]] == [1]
+        assert [ev["seq"] for ev in client.get("/api/events", params={"after": 1}).json()["events"]] == [2]
+        assert client.get("/api/events", params={"after": 99}).json()["events"] == []

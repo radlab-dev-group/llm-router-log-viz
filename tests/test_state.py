@@ -31,3 +31,16 @@ def test_snapshot_contains_known_nodes():
     ids = {n["id"] for n in snap["nodes"]}
     for mode in ["plan", "implement", "review", "debug", "test", "git_review", "aux_title", "compaction"]:
         assert mode in ids
+
+
+def test_event_retention_prunes_line_index():
+    state = DashboardState(max_events=3)
+    for n in range(1, 7):
+        ev = _ev(f"Codex routing: mode=plan source=explicit model=m{n} similarity=1.0 class=main reason=- evidence=- memory=- semantic=-", n)
+        state.add_event(ev)
+
+    assert state.total_events == 6
+    assert len(state.events) == 3
+    assert [ev["seq"] for ev in state.events] == [4, 5, 6]
+    # The line index must follow the retention window, not the full history.
+    assert set(state._event_by_line) == {4, 5, 6}
